@@ -328,7 +328,7 @@ library ClankerGateCore {
     /// @dev Uses domain separator to prevent cross-contract replay and double-hashing 
     ///      to prevent second pre-image attacks on Merkle tree. Rules are hashed individually
     ///      to ensure canonical encoding (reordering doesn't change the hash).
-    function hashPermission(Permission memory permission) internal pure returns (bytes32) {
+    function hashPermission(Permission memory permission) internal view returns (bytes32) {
         bytes32[] memory ruleHashes = new bytes32[](permission.rules.length);
         for (uint256 i; i < permission.rules.length; ++i) {
             ParamRule memory rule = permission.rules[i];
@@ -350,8 +350,8 @@ library ClankerGateCore {
             DOMAIN_SEPARATOR_TYPEHASH,
             keccak256("ClankerGate"),
             keccak256("1"),
-            permission.chainId,
-            permission.target
+            block.chainid,
+            address(this)
         ));
 
         return keccak256(abi.encode(domainSeparator, encodedPermission));
@@ -361,7 +361,7 @@ library ClankerGateCore {
     /// @dev Prevents cross-account singleUse collision attacks
     /// @param account The account address to scope the permission to
     /// @param permission The permission to hash
-    function hashPermissionWithAccount(address account, Permission memory permission) internal pure returns (bytes32) {
+    function hashPermissionWithAccount(address account, Permission memory permission) internal view returns (bytes32) {
         return keccak256(abi.encode(account, hashPermission(permission)));
     }
 
@@ -370,7 +370,7 @@ library ClankerGateCore {
         bytes32 root, 
         bytes32[] memory proof, 
         Permission memory permission
-    ) internal pure returns (bool) {
+    ) internal view returns (bool) {
         bytes32 leaf = hashPermission(permission);
         return MerkleProof.verify(proof, root, leaf);
     }

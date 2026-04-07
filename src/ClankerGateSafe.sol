@@ -301,7 +301,7 @@ contract ClankerGateSafe {
         uint256 chainId,
         bool singleUse,
         uint256 maxValue
-    ) external pure returns (bytes32) {
+    ) external view returns (bytes32) {
         Permission memory permission;
         permission.target = target;
         permission.selector = selector;
@@ -325,7 +325,7 @@ contract ClankerGateSafe {
         uint256 chainId,
         bool singleUse,
         uint256 maxValue
-    ) external pure returns (bytes32) {
+    ) external view returns (bytes32) {
         Permission memory permission;
         permission.target = target;
         permission.selector = selector;

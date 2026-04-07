@@ -409,7 +409,7 @@ contract ClankerGate7579 {
         uint48 validUntil,
         uint256 chainId,
         bool singleUse
-    ) external pure returns (bytes32) {
+    ) external view returns (bytes32) {
         Permission memory permission;
         permission.target = target;
         permission.selector = selector;
@@ -433,7 +433,7 @@ contract ClankerGate7579 {
         uint48 validUntil,
         uint256 chainId,
         bool singleUse
-    ) external pure returns (bytes32) {
+    ) external view returns (bytes32) {
         Permission memory permission;
         permission.target = target;
         permission.selector = selector;
