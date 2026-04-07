@@ -156,6 +156,9 @@ contract ClankerGate4337 {
         // Check singleUse permission - use account-scoped hash to prevent collision attacks
         bytes32 permissionHash = ClankerGateCore.hashPermissionWithAccount(userOp.sender, permission);
         if (permission.singleUse) {
+            // CG-01: Prevent anyone from directly calling validateUserOp to front-run and mark singleUse.
+            // Only userOp.sender (the account) can mark its own permissions as used.
+            if (msg.sender != userOp.sender) revert UnauthorizedCaller();
             if (usedPermissionHashes[userOp.sender][permissionHash]) {
                 revert ClankerGateCore.PermissionAlreadyUsed(permissionHash);
             }
