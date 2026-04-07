@@ -16,6 +16,9 @@ uint8 constant OP_SLT = 7;
 // Maximum number of rules per permission (gas griefing protection)
 uint8 constant MAX_RULES = 10;
 
+// Maximum number of values in OP_IN rule (gas griefing protection)
+uint256 constant MAX_IN_VALUES = 20;
+
 // Domain separator typehash for EIP-712
 bytes32 constant DOMAIN_SEPARATOR_TYPEHASH = keccak256(
     "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
@@ -284,7 +287,10 @@ library ClankerGateCore {
         if (op == OP_LT) return actual < expected;
         if (op == OP_GTE) return actual >= expected;
         if (op == OP_LTE) return actual <= expected;
-        if (op == OP_IN) return inArray(actual, values);
+        if (op == OP_IN) {
+            if (values.length > MAX_IN_VALUES) revert TooManyValues(values.length, MAX_IN_VALUES);
+            return inArray(actual, values);
+        }
         if (op == OP_SGT) {
             int256 actualSigned;
             int256 expectedSigned;
@@ -474,6 +480,7 @@ library ClankerGateCore {
     error PermissionAlreadyUsed(bytes32 permissionHash);
     error InvalidOperator(uint8 op);
     error TooManyRules(uint256 count, uint8 maxAllowed);
+    error TooManyValues(uint256 count, uint256 maxAllowed);
     error InvalidExecuteEncoding();
     error InvalidAddressPadding();
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
