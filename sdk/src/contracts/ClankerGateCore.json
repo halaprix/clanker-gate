@@ -1,0 +1,71 @@
+[
+  {
+    "type": "error",
+    "name": "CalldataOutOfRange",
+    "inputs": [
+      {
+        "name": "offset",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "PermissionAlreadyUsed",
+    "inputs": [
+      {
+        "name": "permissionHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "RuleViolation",
+    "inputs": [
+      {
+        "name": "ruleIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "op",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "expected",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "actual",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ValueNotInSet",
+    "inputs": [
+      {
+        "name": "ruleIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expected",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ]
+  }
+]
