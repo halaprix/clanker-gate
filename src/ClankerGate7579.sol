@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ClankerGateCore, Permission, ParamRule, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH} from "./ClankerGateCore.sol";
 import {IERC7579Account, MODULE_TYPE_VALIDATOR} from "./interfaces/IERC7579.sol";
+import {IERC1271} from "./interfaces/IERC1271.sol";
 
 /**
  * @title ClankerGate7579 - ERC-7579 Validator Module
@@ -282,11 +283,23 @@ contract ClankerGate7579 {
             return _packValidationData(true, 0, 0);
         }
 
-        // Validate signature
-        address signer = userOpHash.recover(signature);
-        address expectedSigner = _getExpectedSigner(msg.sender);
-        if (signer != expectedSigner) {
-            revert UnauthorizedSigner(expectedSigner, signer);
+        // CG-07: Validate signature — support both ECDSA (EOA) and EIP-1271 (smart contract wallets)
+        address sigValidator = accountConfigs[msg.sender].signatureValidator;
+        bool sigValid;
+        
+        if (sigValidator != address(0) && sigValidator.code.length > 0) {
+            // Smart contract wallet: use EIP-1271 isValidSignature
+            sigValid = IERC1271(sigValidator).isValidSignature(userOpHash, signature) 
+                == IERC1271.isValidSignature.selector;
+        } else {
+            // EOA: use ECDSA recovery
+            address expectedSigner = _getExpectedSigner(msg.sender);
+            address signer = userOpHash.recover(signature);
+            sigValid = signer == expectedSigner;
+        }
+        
+        if (!sigValid) {
+            revert UnauthorizedSigner(_getExpectedSigner(msg.sender), address(0));
         }
 
         // Check singleUse permission - use account-scoped hash to prevent collision attacks
