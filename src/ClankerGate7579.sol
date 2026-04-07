@@ -8,6 +8,7 @@ import {IERC7579Account, MODULE_TYPE_VALIDATOR} from "./interfaces/IERC7579.sol"
 /**
  * @title ClankerGate7579 - ERC-7579 Validator Module
  * @author Clanker Protocol
+ * @custom:security-contact security@summer.fi
  * @notice Stateless validator module for ERC-7579 modular accounts
  * @dev 
  *     This module implements ERC-7579 Module Type 1 (Validator).
@@ -268,7 +269,7 @@ contract ClankerGate7579 {
         bytes memory innerCallData;
         if (innerLength > 0 && callData.length >= innerOffset + innerLength) {
             innerCallData = new bytes(innerLength);
-            for (uint256 i = 0; i < innerLength; i++) {
+            for (uint256 i; i < innerLength; ++i) {
                 innerCallData[i] = callData[innerOffset + i];
             }
         } else {

@@ -7,6 +7,7 @@ import {ClankerGateCore, Permission, ParamRule, ERR_INVALID_LENGTH, ERR_SELECTOR
 
 /// @title ClankerGate4337 - ERC-4337 Validator Module
 /// @author Clanker Protocol
+/// @custom:security-contact security@summer.fi
 /// @notice Stateful validator for ERC-4337 Smart Accounts using Merkle proof-based policies
 /// @dev 
 ///     This contract validates UserOperations against policy rules stored in Merkle trees.
@@ -67,12 +68,13 @@ contract ClankerGate4337 {
     error AccountHasNoOwner(address account);
     error DirectCallRequiresTargetZero(address target);
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
+    error UnauthorizedCaller();
 
     /// @notice Sets the Merkle root for an account's policy tree
     /// @param account The account address to set the policy root for
     /// @param root The Merkle root of the permission tree (0 to disable)
     function setPolicyRoot(address account, bytes32 root) external {
-        require(msg.sender == account || msg.sender == IAccount(account).owner(), "Unauthorized");
+        if (msg.sender != account && msg.sender != IAccount(account).owner()) revert UnauthorizedCaller();
         policyRoots[account] = root;
         nonces[account]++;
         emit PolicyRootSet(account, root, nonces[account]);

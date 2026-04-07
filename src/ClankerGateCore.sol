@@ -48,6 +48,7 @@ struct Permission {
 
 /// @title ClankerGateCore - Shared validation logic for all ClankerGate implementations
 /// @author Clanker Protocol
+/// @custom:security-contact security@summer.fi
 /// @notice Provides common validation functions for policy-based transaction validation
 /// @dev EXECUTE_SELECTOR = 0x61461954 is the selector for execute(address,uint256,bytes)
 library ClankerGateCore {
@@ -94,7 +95,7 @@ library ClankerGateCore {
             revert TooManyRules(permission.rules.length, MAX_RULES);
         }
 
-        for (uint256 i = 0; i < permission.rules.length; i++) {
+        for (uint256 i; i < permission.rules.length; ++i) {
             ParamRule memory rule = permission.rules[i];
             uint256 absoluteOffset = 4 + rule.offset;
 
@@ -140,7 +141,7 @@ library ClankerGateCore {
             revert TooManyRules(permission.rules.length, MAX_RULES);
         }
 
-        for (uint256 i = 0; i < permission.rules.length; i++) {
+        for (uint256 i; i < permission.rules.length; ++i) {
             ParamRule memory rule = permission.rules[i];
             uint256 absoluteOffset = 4 + rule.offset;
 
@@ -193,7 +194,7 @@ library ClankerGateCore {
             revert TooManyRules(permission.rules.length, MAX_RULES);
         }
 
-        for (uint256 i = 0; i < permission.rules.length; i++) {
+        for (uint256 i; i < permission.rules.length; ++i) {
             ParamRule memory rule = permission.rules[i];
             uint256 absoluteOffset = 4 + rule.offset;
 
@@ -241,7 +242,7 @@ library ClankerGateCore {
             revert TooManyRules(permission.rules.length, MAX_RULES);
         }
 
-        for (uint256 i = 0; i < permission.rules.length; i++) {
+        for (uint256 i; i < permission.rules.length; ++i) {
             ParamRule memory rule = permission.rules[i];
             uint256 absoluteOffset = 4 + rule.offset;
 
@@ -309,7 +310,7 @@ library ClankerGateCore {
     /// @param value The value to search for
     /// @param array The array to search in
     function inArray(bytes32 value, bytes32[] memory array) internal pure returns (bool) {
-        for (uint256 i = 0; i < array.length; i++) {
+        for (uint256 i; i < array.length; ++i) {
             if (array[i] == value) {
                 return true;
             }
@@ -323,7 +324,7 @@ library ClankerGateCore {
     ///      to ensure canonical encoding (reordering doesn't change the hash).
     function hashPermission(Permission memory permission) internal pure returns (bytes32) {
         bytes32[] memory ruleHashes = new bytes32[](permission.rules.length);
-        for (uint256 i = 0; i < permission.rules.length; i++) {
+        for (uint256 i; i < permission.rules.length; ++i) {
             ParamRule memory rule = permission.rules[i];
             ruleHashes[i] = keccak256(abi.encode(rule.offset, rule.op, rule.value, rule.values));
         }

@@ -5,6 +5,7 @@ import {ClankerGateCore, Permission, ParamRule, ERR_INVALID_LENGTH, ERR_SELECTOR
 
 /// @title ClankerGateSafe - Gnosis Safe Module
 /// @author Clanker Protocol
+/// @custom:security-contact security@summer.fi
 /// @notice Safe Module that validates transactions through policy rules before execution
 /// @dev 
 ///     This module enables Safe accounts to enforce granular transaction policies.
@@ -96,6 +97,7 @@ contract ClankerGateSafe {
     error DelegatecallNotAllowed(address target);
     error ReentrantCall();
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
+    error MustBeCalledDirectlyBySafe();
 
     modifier nonReentrant() {
         if (_reentrancyStatus == _ENTERED) {
@@ -110,7 +112,7 @@ contract ClankerGateSafe {
     /// @param safe The Safe address
     /// @param root The new policy root
     function setPolicyRoot(address safe, bytes32 root) external {
-        require(msg.sender == safe, "Must be called directly by Safe");
+        if (msg.sender != safe) revert MustBeCalledDirectlyBySafe();
         
         authorizations[safe].policyRoot = root;
         authorizations[safe].nonce++;
@@ -123,7 +125,7 @@ contract ClankerGateSafe {
     /// @param safe The Safe address
     /// @param caller The caller to authorize
     function authorizeCaller(address safe, address caller) external {
-        require(msg.sender == safe, "Must be called directly by Safe");
+        if (msg.sender != safe) revert MustBeCalledDirectlyBySafe();
         
         isAuthorizedCaller[safe][caller] = true;
         emit CallerAuthorized(safe, caller);
@@ -133,7 +135,7 @@ contract ClankerGateSafe {
     /// @param safe The Safe address
     /// @param caller The caller to deauthorize
     function deauthorizeCaller(address safe, address caller) external {
-        require(msg.sender == safe, "Must be called directly by Safe");
+        if (msg.sender != safe) revert MustBeCalledDirectlyBySafe();
         
         isAuthorizedCaller[safe][caller] = false;
         emit CallerDeauthorized(safe, caller);
@@ -144,7 +146,7 @@ contract ClankerGateSafe {
     /// @param target The target address
     /// @param allowed Whether delegatecall is allowed
     function setDelegatecallWhitelist(address safe, address target, bool allowed) external {
-        require(msg.sender == safe, "Must be called directly by Safe");
+        if (msg.sender != safe) revert MustBeCalledDirectlyBySafe();
         
         delegatecallWhitelist[safe][target] = allowed;
         emit DelegatecallWhitelistUpdated(safe, target, allowed);
