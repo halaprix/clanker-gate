@@ -308,40 +308,82 @@ contract ClankerGate7579 {
      * @return callData The callData field from the UserOperation
      */
     function _decodeCallData(bytes calldata userOp) internal pure returns (bytes memory callData) {
-        // Try to decode as legacy UserOperation (10 fields)
-        // Format: address sender, uint256 nonce, bytes initCode, bytes callData, uint256 callGasLimit,
-        //         uint256 verificationGasLimit, uint256 preVerificationGas, uint256 maxFeePerGas,
-        //         uint256 maxPriorityFeePerGas, bytes paymasterAndData
-        if (userOp.length >= 64) {
-            // Read the first offset to check format
-            uint256 initCodeOffset;
-            assembly {
-                initCodeOffset := calldataload(add(userOp.offset, 64))
-            }
-            
-            // If offset seems reasonable, try legacy format
-            if (initCodeOffset < userOp.length) {
-                // Try legacy decode (10 fields)
-                (
-                    , // sender
-                    , // nonce
-                    , // initCode
-                    bytes memory legacyCallData,
-                    , // callGasLimit
-                    , // verificationGasLimit
-                    , // preVerificationGas
-                    , // maxFeePerGas
-                    , // maxPriorityFeePerGas
-                    
-                ) = abi.decode(userOp, (address, uint256, bytes, bytes, uint256, uint256, uint256, uint256, uint256, bytes));
-                
-                return legacyCallData;
+        // CG-06: Support both Legacy and PackedUserOperation v0.7 formats
+        // Try PackedUserOperation v0.7 first (newer format)
+        // Format: sender, nonce, initCode, callData, accountGasLimits, verificationGasLimit,
+        //         preVerificationGas, maxFeePerGas, maxPriorityFeePerGas, paymasterAndData, signature
+        try this.decodeCallDataPacked(userOp) returns (bytes memory result) {
+            return result;
+        } catch {
+            // Fall back to legacy UserOperation format (10 fields)
+            // Format: sender, nonce, initCode, callData, callGasLimit, verificationGasLimit,
+            //         preVerificationGas, maxFeePerGas, maxPriorityFeePerGas, paymasterAndData
+            try this.decodeCallDataLegacy(userOp) returns (bytes memory result) {
+                return result;
+            } catch {
+                revert InvalidUserOpFormat();
             }
         }
-        
-        // If legacy format fails, try PackedUserOperation format
-        // This is a simplified approach - in production you'd want more robust detection
-        revert InvalidUserOpFormat();
+    }
+
+    /// @notice Decode callData from PackedUserOperation v0.7 format
+    function decodeCallDataPacked(
+        bytes calldata userOp
+    ) external view returns (bytes memory callData) {
+        (
+            , // sender
+            , // nonce
+            , // initCode
+            callData,
+            , // accountGasLimits
+            , // verificationGasLimit
+            , // preVerificationGas
+            , // maxFeePerGas
+            , // maxPriorityFeePerGas
+            , // paymasterAndData
+            // signature
+        ) = abi.decode(userOp, (
+            address,
+            uint256,
+            bytes,
+            bytes,
+            bytes32,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            bytes,
+            bytes
+        ));
+    }
+
+    /// @notice Decode callData from legacy UserOperation format
+    function decodeCallDataLegacy(
+        bytes calldata userOp
+    ) external view returns (bytes memory callData) {
+        (
+            , // sender
+            , // nonce
+            , // initCode
+            callData,
+            , // callGasLimit
+            , // verificationGasLimit
+            , // preVerificationGas
+            , // maxFeePerGas
+            , // maxPriorityFeePerGas
+             // paymasterAndData
+        ) = abi.decode(userOp, (
+            address,
+            uint256,
+            bytes,
+            bytes,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            bytes
+        ));
     }
 
     /**
