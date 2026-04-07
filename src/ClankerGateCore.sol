@@ -400,8 +400,10 @@ library ClankerGateCore {
             target = address(bytes20(callData[16:36]));
             value = uint256(bytes32(callData[36:68]));
             uint256 dataOffset = uint256(bytes32(callData[68:100]));
-            uint256 dataLength = uint256(bytes32(callData[100:132]));
-            innerDataOffset = 4 + dataOffset + 32;
+            // CG-12: Read dataLength from dynamic position based on dataOffset pointer,
+            // not hardcoded offset. This prevents ABI layout bypass attacks.
+            uint256 dataLength = uint256(bytes32(callData[68 + dataOffset:68 + dataOffset + 32]));
+            innerDataOffset = 68 + dataOffset + 32;
             innerDataLength = dataLength;
             
             // Bounds check: ensure inner data is within calldata
@@ -441,13 +443,23 @@ library ClankerGateCore {
         if (selector == EXECUTE_SELECTOR && callData.length >= 132) {
             bytes20 targetBytes;
             uint256 dataOffset;
-            uint256 dataLength;
             bytes12 padding;
             assembly {
                 padding := mload(add(callData, 36))
                 targetBytes := mload(add(add(callData, 32), 16))
                 dataOffset := mload(add(add(callData, 32), 68))
-                dataLength := mload(add(add(callData, 32), 100))
+            }
+            
+            // CG-12: Read dataLength from dynamic position based on dataOffset pointer,
+            // not hardcoded offset. This prevents ABI layout bypass attacks.
+            uint256 dataLength;
+            unchecked {
+                uint256 dataLengthPos = 68 + dataOffset;
+                if (dataLengthPos + 32 <= callData.length) {
+                    assembly {
+                        dataLength := mload(add(add(callData, 32), dataLengthPos))
+                    }
+                }
             }
             
             // Decode value from bytes 36-68
@@ -461,7 +473,7 @@ library ClankerGateCore {
             }
             
             target = address(targetBytes);
-            innerDataOffset = 4 + dataOffset + 32;
+            innerDataOffset = 68 + dataOffset + 32;
             innerDataLength = dataLength;
             
             // Bounds check
