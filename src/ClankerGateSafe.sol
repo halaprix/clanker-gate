@@ -228,7 +228,7 @@ contract ClankerGateSafe {
         }
 
         // Verify Merkle proof
-        if (!ClankerGateCore.verifyMerkleProof(root, proof, permission)) {
+        if (!ClankerGateCore.verifyMerkleProof(root, proof, permission, safe, authorizations[safe].nonce)) {
             revert InvalidProof();
         }
 
@@ -272,7 +272,7 @@ contract ClankerGateSafe {
         }
 
         // Check singleUse permission - use account-scoped hash to prevent collision attacks
-        bytes32 permissionHash = ClankerGateCore.hashPermissionWithAccount(safe, permission);
+        bytes32 permissionHash = ClankerGateCore.hashPermissionWithAccount(safe, permission, authorizations[safe].nonce);
         if (permission.singleUse) {
             if (usedPermissionHashes[safe][permissionHash]) {
                 revert ClankerGateCore.PermissionAlreadyUsed(permissionHash);
@@ -335,6 +335,6 @@ contract ClankerGateSafe {
         permission.chainId = chainId;
         permission.singleUse = singleUse;
         permission.maxValue = maxValue;
-        return ClankerGateCore.hashPermissionWithAccount(safe, permission);
+        return ClankerGateCore.hashPermissionWithAccount(safe, permission, authorizations[safe].nonce);
     }
 }

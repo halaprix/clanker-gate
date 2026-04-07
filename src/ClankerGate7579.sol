@@ -231,7 +231,7 @@ contract ClankerGate7579 {
         (bytes32[] memory proof, Permission memory permission, bytes memory signature) =
             abi.decode(guardData, (bytes32[], Permission, bytes));
 
-        if (!ClankerGateCore.verifyMerkleProof(root, proof, permission)) {
+        if (!ClankerGateCore.verifyMerkleProof(root, proof, permission, msg.sender, accountConfigs[msg.sender].nonce)) {
             revert InvalidProof();
         }
 
@@ -290,7 +290,7 @@ contract ClankerGate7579 {
         }
 
         // Check singleUse permission - use account-scoped hash to prevent collision attacks
-        bytes32 permissionHash = ClankerGateCore.hashPermissionWithAccount(msg.sender, permission);
+        bytes32 permissionHash = ClankerGateCore.hashPermissionWithAccount(msg.sender, permission, accountConfigs[msg.sender].nonce);
         if (permission.singleUse) {
             if (usedPermissionHashes[msg.sender][permissionHash]) {
                 revert ClankerGateCore.PermissionAlreadyUsed(permissionHash);
@@ -442,6 +442,6 @@ contract ClankerGate7579 {
         permission.validUntil = validUntil;
         permission.chainId = chainId;
         permission.singleUse = singleUse;
-        return ClankerGateCore.hashPermissionWithAccount(account, permission);
+        return ClankerGateCore.hashPermissionWithAccount(account, permission, accountConfigs[account].nonce);
     }
 }

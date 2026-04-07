@@ -361,17 +361,20 @@ library ClankerGateCore {
     /// @dev Prevents cross-account singleUse collision attacks
     /// @param account The account address to scope the permission to
     /// @param permission The permission to hash
-    function hashPermissionWithAccount(address account, Permission memory permission) internal view returns (bytes32) {
-        return keccak256(abi.encode(account, hashPermission(permission)));
+    function hashPermissionWithAccount(address account, Permission memory permission, uint256 nonce) internal view returns (bytes32) {
+        return keccak256(abi.encode(account, hashPermission(permission), nonce));
     }
 
     /// @notice Verifies a Merkle proof for a permission
+    // CG-03: Added account+nonce to bind permission to policy epoch
     function verifyMerkleProof(
         bytes32 root, 
         bytes32[] memory proof, 
-        Permission memory permission
+        Permission memory permission,
+        address account,
+        uint256 nonce
     ) internal view returns (bool) {
-        bytes32 leaf = hashPermission(permission);
+        bytes32 leaf = hashPermissionWithAccount(account, permission, nonce);
         return MerkleProof.verify(proof, root, leaf);
     }
 
