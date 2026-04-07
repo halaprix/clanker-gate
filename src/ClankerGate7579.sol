@@ -372,7 +372,7 @@ contract ClankerGate7579 {
         uint48 validUntil,
         uint48 validAfter
     ) internal pure returns (uint256) {
-        return (uint256(validUntil) << 160) | (uint256(validAfter) << 192) | (sigFailed ? 1 : 0);
+        return (uint256(validUntil) << 160) | (uint256(validAfter) << 208) | (sigFailed ? 1 : 0);
     }
 
     // ============ View Functions ============
