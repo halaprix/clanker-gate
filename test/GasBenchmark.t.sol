@@ -48,6 +48,23 @@ contract GasBenchmark is Test {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
 
+    /// @notice Encode UserOperation as bytes for validateUserOp (which now takes bytes)
+    function _encodeUserOp(IEntryPoint.UserOperation memory userOp) internal pure returns (bytes memory) {
+        return abi.encode(
+            userOp.sender,
+            userOp.nonce,
+            userOp.initCode,
+            userOp.callData,
+            userOp.callGasLimit,
+            userOp.verificationGasLimit,
+            userOp.preVerificationGas,
+            userOp.maxFeePerGas,
+            userOp.maxPriorityFeePerGas,
+            userOp.paymasterAndData,
+            userOp.signature
+        );
+    }
+
     ClankerGate4337 gate;
     ABIDecodeValidator abiValidator;
     MockAccount account;
@@ -228,7 +245,7 @@ contract GasBenchmark is Test {
         permission.chainId = 0;
         permission.singleUse = false;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
 
         vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
@@ -250,7 +267,7 @@ contract GasBenchmark is Test {
         bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
 
         uint256 gasBefore = gasleft();
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         uint256 gasUsed = gasBefore - gasleft();
 
         console.log("ClankerGate approach:", gasUsed);
@@ -297,7 +314,7 @@ contract GasBenchmark is Test {
         bytes memory callData,
         string memory label
     ) internal {
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
 
         vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
@@ -313,7 +330,8 @@ contract GasBenchmark is Test {
         bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
 
         uint256 gasBefore = gasleft();
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        vm.prank(address(account));
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         uint256 gasUsed = gasBefore - gasleft();
 
         console.log(label, ":", gasUsed);

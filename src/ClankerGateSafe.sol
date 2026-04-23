@@ -39,6 +39,7 @@ interface ISafe {
 struct CallerAuth {
     bytes32 policyRoot;
     uint256 nonce;
+    uint256 whitelistVersion; // CG-20b: Version to invalidate old whitelist entries on rotation
     bool enabled;
 }
 
@@ -52,6 +53,13 @@ contract ClankerGateSafe {
     /// @notice Mapping from Safe address to caller authorizations
     mapping(address => CallerAuth) public authorizations;
 
+    /// @notice Get the current nonce for a Safe
+    /// @param safe The Safe address
+    /// @return The current nonce
+    function nonces(address safe) external view returns (uint256) {
+        return authorizations[safe].nonce;
+    }
+
     /// @notice Mapping from Safe => caller => authorized
     mapping(address => mapping(address => bool)) public isAuthorizedCaller;
 
@@ -59,8 +67,9 @@ contract ClankerGateSafe {
     /// @dev Uses nested mapping to prevent cross-account singleUse collision attacks
     mapping(address => mapping(bytes32 => bool)) public usedPermissionHashes;
 
-    /// @notice Mapping from Safe => target => delegatecall allowed
-    mapping(address => mapping(address => bool)) public delegatecallWhitelist;
+    /// @notice Mapping from Safe => target => whitelist version (0 = not whitelisted)
+    /// @dev CG-20b: Check against authorizations[safe].whitelistVersion - entries from old versions are invalid
+    mapping(address => mapping(address => uint256)) public delegatecallWhitelistVersion;
 
     /// @notice Emitted when policy root is set
     event PolicyRootSet(address indexed safe, bytes32 root, uint256 nonce);
@@ -98,6 +107,7 @@ contract ClankerGateSafe {
     error ReentrantCall();
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
     error MustBeCalledDirectlyBySafe();
+    error UnauthorizedCallerForPermission(address caller, address expected);
 
     modifier nonReentrant() {
         if (_reentrancyStatus == _ENTERED) {
@@ -116,9 +126,19 @@ contract ClankerGateSafe {
         
         authorizations[safe].policyRoot = root;
         authorizations[safe].nonce++;
+        authorizations[safe].whitelistVersion++; // CG-20b: Invalidate old whitelist entries
         authorizations[safe].enabled = true;
         
         emit PolicyRootSet(safe, root, authorizations[safe].nonce);
+    }
+
+    /// @notice Compute permission hash in this contract's context
+    /// @param account The account to scope the permission to
+    /// @param permission The permission to hash
+    /// @param nonce The nonce to bind
+    /// @return The computed leaf hash
+    function computePermissionHash(address account, Permission memory permission, uint256 nonce) external view returns (bytes32) {
+        return ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
     }
 
     /// @notice Authorizes a caller to execute transactions on behalf of Safe
@@ -148,7 +168,14 @@ contract ClankerGateSafe {
     function setDelegatecallWhitelist(address safe, address target, bool allowed) external {
         if (msg.sender != safe) revert MustBeCalledDirectlyBySafe();
         
-        delegatecallWhitelist[safe][target] = allowed;
+        if (allowed) {
+            // CG-20b: Store the current whitelist version - entry is valid as long as
+            // its version matches the current whitelistVersion in CallerAuth
+            delegatecallWhitelistVersion[safe][target] = authorizations[safe].whitelistVersion;
+        } else {
+            // Clear by setting to a version that will never match
+            delegatecallWhitelistVersion[safe][target] = 0;
+        }
         emit DelegatecallWhitelistUpdated(safe, target, allowed);
     }
 
@@ -249,14 +276,19 @@ contract ClankerGateSafe {
             }
         }
 
+        // CG-02: Check caller is authorized for this permission
+        if (permission.authorizedCaller != address(0) && permission.authorizedCaller != msg.sender) {
+            revert UnauthorizedCallerForPermission(msg.sender, permission.authorizedCaller);
+        }
+
         // Validate target
         if (to != permission.target) {
             revert TargetMismatch(permission.target, to);
         }
 
-        // Check DELEGATECALL whitelist (SECURITY FIX for SAFE-02)
+        // Check DELEGATECALL whitelist (CG-20b: versioned to invalidate on rotation)
         if (operation == 1) { // DELEGATECALL
-            if (!delegatecallWhitelist[safe][to]) {
+            if (delegatecallWhitelistVersion[safe][to] != authorizations[safe].whitelistVersion) {
                 revert DelegatecallNotAllowed(to);
             }
         }

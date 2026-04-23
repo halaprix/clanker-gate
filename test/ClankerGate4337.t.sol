@@ -44,6 +44,23 @@ contract ClankerGateTest is Test {
         account = new MockAccount(owner);
         account.setGate(address(gate));
     }
+
+    /// @notice Encode UserOperation as bytes for validateUserOp (which now takes bytes)
+    function _encodeUserOp(IEntryPoint.UserOperation memory userOp) internal pure returns (bytes memory) {
+        return abi.encode(
+            userOp.sender,
+            userOp.nonce,
+            userOp.initCode,
+            userOp.callData,
+            userOp.callGasLimit,
+            userOp.verificationGasLimit,
+            userOp.preVerificationGas,
+            userOp.maxFeePerGas,
+            userOp.maxPriorityFeePerGas,
+            userOp.paymasterAndData,
+            userOp.signature
+        );
+    }
 }
 
 // ============================================================
@@ -64,10 +81,10 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes32 userOpHash = keccak256("test");
         bytes memory guardData =
-            abi.encode(new bytes32[](0), Permission(address(0), bytes4(0), new ParamRule[](0), 0, 0, 0, false, 0), hex"");
+            abi.encode(new bytes32[](0), Permission(address(0), bytes4(0), new ParamRule[](0), 0, 0, 0, false, 0, address(0)), hex"");
 
         vm.expectRevert(ClankerGate4337.RootNotSet.selector);
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     function test_ValidateUserOp_ZeroRules() public {
@@ -79,7 +96,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -96,7 +113,7 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
     }
 
@@ -109,7 +126,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -126,7 +143,7 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 1);
     }
 
@@ -140,7 +157,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -158,7 +175,7 @@ contract CoreValidationTests is ClankerGateTest {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.CalldataOutOfRange.selector, 1004));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     function test_RevertWhen_UnauthorizedSigner() public {
@@ -170,7 +187,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -190,7 +207,7 @@ contract CoreValidationTests is ClankerGateTest {
 
         address wrongSigner = vm.addr(wrongKey);
         vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.UnauthorizedSigner.selector, owner, wrongSigner));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     function test_RevertWhen_InvalidProof() public {
@@ -202,7 +219,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = bytes32(uint256(1)); // Invalid sibling
         bytes32 root = leaf;
@@ -221,7 +238,7 @@ contract CoreValidationTests is ClankerGateTest {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(ClankerGate4337.InvalidProof.selector);
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     function test_ValidateRule_EQ_Pass() public {
@@ -234,7 +251,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -251,7 +268,7 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
     }
 
@@ -265,7 +282,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -282,7 +299,7 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
     }
 
@@ -296,7 +313,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -318,7 +335,7 @@ contract CoreValidationTests is ClankerGateTest {
                 ClankerGateCore.RuleViolation.selector, 0, 4, bytes32(uint256(100)), bytes32(uint256(700))
             )
         );
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     function test_ValidateRule_IN_Pass() public {
@@ -336,7 +353,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -353,7 +370,7 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
     }
 
@@ -372,7 +389,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -390,7 +407,7 @@ contract CoreValidationTests is ClankerGateTest {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.ValueNotInSet.selector, 0, bytes32(uint256(1000)), allowedValues));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     function test_ValidateRule_IN_MultipleAddresses() public {
@@ -412,7 +429,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -438,7 +455,7 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
     }
 
@@ -452,7 +469,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.chainId = 0;
         permission.singleUse = true;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -469,10 +486,11 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        vm.prank(address(account));
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
         
-        bytes32 accountPermissionHash = ClankerGateCore.hashPermissionWithAccount(address(account), permission);
+        bytes32 accountPermissionHash = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)));
         assertTrue(gate.usedPermissionHashes(address(account), accountPermissionHash));
     }
 
@@ -486,7 +504,7 @@ contract CoreValidationTests is ClankerGateTest {
         permission.chainId = 0;
         permission.singleUse = true;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -503,12 +521,14 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        vm.prank(address(account));
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
 
-        bytes32 accountPermissionHash = ClankerGateCore.hashPermissionWithAccount(address(account), permission);
+        bytes32 accountPermissionHash = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)));
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.PermissionAlreadyUsed.selector, accountPermissionHash));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        vm.prank(address(account));
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 }
 
@@ -527,7 +547,7 @@ contract SessionLifecycleTests is ClankerGateTest {
         permission.validAfter = 0;
         permission.validUntil = uint48(block.timestamp);
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -547,7 +567,7 @@ contract SessionLifecycleTests is ClankerGateTest {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.PermissionExpired.selector, block.timestamp, permission.validUntil));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     function test_RevertWhen_PermissionNotYetValid() public {
@@ -559,7 +579,7 @@ contract SessionLifecycleTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -577,22 +597,22 @@ contract SessionLifecycleTests is ClankerGateTest {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.PermissionNotYetValid.selector, block.timestamp, permission.validAfter));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     function test_ValidTimeWindow() public {
         vm.warp(10000);
-        uint256 now = block.timestamp;
+        uint256 currentTime = block.timestamp;
         
         Permission memory permission;
         permission.target = address(0);
         permission.selector = 0x12345678;
         permission.rules = new ParamRule[](0);
-        permission.validAfter = uint48(now - 3600);
-        permission.validUntil = uint48(now + 3600);
+        permission.validAfter = uint48(currentTime - 3600);
+        permission.validUntil = uint48(currentTime + 3600);
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -609,7 +629,7 @@ contract SessionLifecycleTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
     }
 
@@ -622,7 +642,7 @@ contract SessionLifecycleTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 999;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -640,7 +660,7 @@ contract SessionLifecycleTests is ClankerGateTest {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.ChainIdMismatch.selector, permission.chainId, block.chainid));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     function test_ChainIdWildcard_ZeroMeansAllChains() public {
@@ -652,7 +672,7 @@ contract SessionLifecycleTests is ClankerGateTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -669,7 +689,7 @@ contract SessionLifecycleTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
     }
 

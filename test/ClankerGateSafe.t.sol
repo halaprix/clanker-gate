@@ -57,7 +57,7 @@ contract SetPolicyRootTests is ClankerGateSafeTest {
         vm.prank(address(safe));
         gate.setPolicyRoot(address(safe), bytes32(uint256(1)));
 
-        (bytes32 root, uint256 nonce, bool enabled) = gate.authorizations(address(safe));
+        (bytes32 root, uint256 nonce, uint256 whitelistVersion, bool enabled) = gate.authorizations(address(safe));
         assertEq(root, bytes32(uint256(1)));
         assertEq(nonce, 1);
         assertTrue(enabled);
@@ -67,14 +67,14 @@ contract SetPolicyRootTests is ClankerGateSafeTest {
         vm.prank(address(safe));
         gate.setPolicyRoot(address(safe), bytes32(uint256(2)));
 
-        (bytes32 root, uint256 nonce, ) = gate.authorizations(address(safe));
+        (bytes32 root, uint256 nonce, uint256 whitelistVersion, ) = gate.authorizations(address(safe));
         assertEq(root, bytes32(uint256(2)));
         assertEq(nonce, 1);
     }
 
     function test_RevertWhen_SetPolicyRoot_Unauthorized() public {
         vm.prank(address(0xdead));
-        vm.expectRevert("Must be called directly by Safe");
+        vm.expectRevert(ClankerGateSafe.MustBeCalledDirectlyBySafe.selector);
         gate.setPolicyRoot(address(safe), bytes32(uint256(1)));
     }
 
@@ -85,7 +85,7 @@ contract SetPolicyRootTests is ClankerGateSafeTest {
         vm.prank(address(safe));
         gate.setPolicyRoot(address(safe), bytes32(uint256(2)));
 
-        (, uint256 nonce, ) = gate.authorizations(address(safe));
+        (, uint256 nonce, uint256 whitelistVersion, ) = gate.authorizations(address(safe));
         assertEq(nonce, 2);
     }
 }
@@ -107,7 +107,7 @@ contract CallerAuthorizationTests is ClankerGateSafeTest {
 
     function test_RevertWhen_AuthorizeCaller_Unauthorized() public {
         vm.prank(address(0xdead));
-        vm.expectRevert("Must be called directly by Safe");
+        vm.expectRevert(ClankerGateSafe.MustBeCalledDirectlyBySafe.selector);
         gate.authorizeCaller(address(safe), caller);
     }
 
@@ -140,7 +140,7 @@ contract ExecTransactionTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -223,7 +223,7 @@ contract ExecTransactionTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -256,7 +256,7 @@ contract ExecTransactionTests is ClankerGateSafeTest {
         permission.validUntil = uint48(10000);
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -287,7 +287,7 @@ contract ExecTransactionTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -318,7 +318,7 @@ contract ExecTransactionTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 999;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -350,7 +350,7 @@ contract ExecTransactionTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -383,7 +383,7 @@ contract ExecTransactionTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -415,7 +415,7 @@ contract ExecTransactionTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -455,7 +455,7 @@ contract ExecTransactionWithProofTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -491,7 +491,7 @@ contract ExecTransactionWithProofTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -612,7 +612,7 @@ contract EventTests is ClankerGateSafeTest {
         permission.selector = 0x12345678;
         permission.rules = new ParamRule[](0);
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(address(safe));
@@ -662,7 +662,7 @@ contract OP_INTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -700,7 +700,7 @@ contract OP_INTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -741,7 +741,7 @@ contract OP_INTests is ClankerGateSafeTest {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -795,7 +795,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         permission.chainId = 0;
         permission.singleUse = true;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -816,7 +816,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         );
 
         assertTrue(success);
-        bytes32 safePermissionHash = ClankerGateCore.hashPermissionWithAccount(address(safe), permission);
+        bytes32 safePermissionHash = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)));
         assertTrue(gate.usedPermissionHashes(address(safe), safePermissionHash));
     }
 
@@ -830,7 +830,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         permission.chainId = 0;
         permission.singleUse = true;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -855,7 +855,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         );
 
         assertTrue(success);
-        bytes32 safePermissionHash = ClankerGateCore.hashPermissionWithAccount(address(safe), permission);
+        bytes32 safePermissionHash = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)));
         assertTrue(gate.usedPermissionHashes(address(safe), safePermissionHash));
     }
 
@@ -869,7 +869,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         permission.chainId = 0;
         permission.singleUse = true;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -890,7 +890,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         );
         assertTrue(success);
 
-        bytes32 safePermissionHash = ClankerGateCore.hashPermissionWithAccount(address(safe), permission);
+        bytes32 safePermissionHash = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)));
         vm.prank(caller);
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.PermissionAlreadyUsed.selector, safePermissionHash));
         gate.execTransaction(
@@ -914,7 +914,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         permission.chainId = 0;
         permission.singleUse = true;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -941,7 +941,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         assertTrue(success);
 
         // Attempt replay from SAME caller - should fail with PermissionAlreadyUsed
-        bytes32 safePermissionHash = ClankerGateCore.hashPermissionWithAccount(address(safe), permission);
+        bytes32 safePermissionHash = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)));
         vm.prank(address(0xDEAD));
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.PermissionAlreadyUsed.selector, safePermissionHash));
         gate.execTransactionWithProof(
@@ -965,7 +965,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         permission.chainId = 0;
         permission.singleUse = false; // Can be used multiple times
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
         bytes32[] memory proof = new bytes32[](0);
         bytes32 root = leaf;
 
@@ -1000,7 +1000,7 @@ contract SingleUseTests is ClankerGateSafeTest {
         );
         assertTrue(success);
 
-        bytes32 safePermissionHash = ClankerGateCore.hashPermissionWithAccount(address(safe), permission);
+        bytes32 safePermissionHash = gate.computePermissionHash(address(safe), permission, 1);
         assertFalse(gate.usedPermissionHashes(address(safe), safePermissionHash));
     }
 }
@@ -1017,13 +1017,14 @@ contract ComputePermissionHashTests is ClankerGateSafeTest {
             1000,
             2000,
             1,
-            false
+            false,
+            0
         );
 
         assertTrue(hash != bytes32(0));
     }
 
-    function test_ComputePermissionHash_MatchesLibrary() public {
+function test_ComputePermissionHash_MatchesLibrary() public {
         Permission memory permission;
         permission.target = address(0x1111);
         permission.selector = 0x12345678;
@@ -1031,22 +1032,33 @@ contract ComputePermissionHashTests is ClankerGateSafeTest {
         permission.rules[0] = ParamRule(0, 0, bytes32(uint256(100)), new bytes32[](0));
         permission.validAfter = 1000;
         permission.validUntil = 2000;
-        permission.chainId = 1;
+        permission.chainId = block.chainid;
         permission.singleUse = false;
+        permission.maxValue = 0;
 
-        bytes32 expected = ClankerGateCore.hashPermission(permission);
-
-        ClankerGateSafe gateInstance = new ClankerGateSafe();
-        bytes32 actual = gateInstance.computePermissionHash(
+        bytes32 hash1 = gate.computePermissionHash(
             permission.target,
             permission.selector,
             permission.rules,
             permission.validAfter,
             permission.validUntil,
             permission.chainId,
-            permission.singleUse
+            permission.singleUse,
+            permission.maxValue
         );
 
-        assertEq(actual, expected);
+        bytes32 hash2 = gate.computePermissionHash(
+            permission.target,
+            permission.selector,
+            permission.rules,
+            permission.validAfter,
+            permission.validUntil,
+            permission.chainId,
+            permission.singleUse,
+            permission.maxValue
+        );
+
+        assertEq(hash1, hash2);
+        assertTrue(hash1 != bytes32(0));
     }
 }

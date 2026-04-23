@@ -13,13 +13,13 @@ contract ClankerGateCoreWrapper {
         return ClankerGateCore.validateCallData(callData, permission);
     }
 
-    function hashPermissionWrapped(Permission memory permission) external pure returns (bytes32) {
+    function hashPermissionWrapped(Permission memory permission) external view returns (bytes32) {
         return ClankerGateCore.hashPermission(permission);
     }
 }
 
 contract ClankerGateCoreTest is Test {
-    function test_HashPermission() public pure {
+    function test_HashPermission() public view {
         Permission memory permission;
         permission.target = address(0x1111);
         permission.selector = 0x12345678;
@@ -32,7 +32,7 @@ contract ClankerGateCoreTest is Test {
         assertTrue(hash != bytes32(0));
     }
 
-    function test_HashPermission_WithRules() public pure {
+    function test_HashPermission_WithRules() public view {
         Permission memory permission;
         permission.target = address(0x1111);
         permission.selector = 0x12345678;

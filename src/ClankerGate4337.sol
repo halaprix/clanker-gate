@@ -31,6 +31,11 @@ import {ClankerGateCore, Permission, ParamRule, ERR_INVALID_LENGTH, ERR_SELECTOR
 contract ClankerGate4337 {
     using ECDSA for bytes32;
 
+    // DEBUG function - remove after testing
+    function computeLeafFromTest(address account, Permission memory permission, uint256 nonce) external view returns (bytes32) {
+        return ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
+    }
+
     /// @notice Mapping from account address to their policy Merkle root
     mapping(address => bytes32) public policyRoots;
 
@@ -80,26 +85,62 @@ contract ClankerGate4337 {
         emit PolicyRootSet(account, root, nonces[account]);
     }
 
+    /// @notice Sets the policy root by computing leaf from permission in THIS contract's context
+    /// @dev This ensures address(this) in hashPermission matches during validation
+    /// @param account The account address
+    /// @param permission The permission to compute leaf from
+    /// @param nonce The nonce to bind to (use nonces[account] before incrementing)
+    function setPolicyRootWithPermission(address account, Permission memory permission, uint256 nonce) external {
+        if (msg.sender != account && msg.sender != IAccount(account).owner()) revert UnauthorizedCaller();
+        bytes32 leaf = ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
+        policyRoots[account] = leaf;
+        nonces[account]++;
+        emit PolicyRootSet(account, leaf, nonces[account]);
+    }
+
+    /// @notice Compute permission hash in this contract's context
+    /// @param account The account to scope the permission to
+    /// @param permission The permission to hash
+    /// @param nonce The nonce to bind
+    /// @return The computed leaf hash
+    function computePermissionHash(address account, Permission memory permission, uint256 nonce) external view returns (bytes32) {
+        return ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
+    }
+
     /// @notice Validates a UserOperation against the account's policy
-    /// @param userOp The UserOperation being validated
+    /// @param userOp ABI-encoded UserOperation (sender, nonce, initCode, callData, gas limits, fees, paymasterAndData, signature)
     /// @param userOpHash Hash of the UserOperation
     /// @param guardData ABI-encoded (bytes32[] proof, Permission permission, bytes signature)
     /// @return validationData 0 for valid, packed validation data for invalid
     function validateUserOp(
-        IEntryPoint.UserOperation calldata userOp,
+        bytes calldata userOp,
         bytes32 userOpHash,
         bytes calldata guardData
     ) external returns (uint256 validationData) {
-        bytes32 root = policyRoots[userOp.sender];
+        // Decode UserOperation from bytes to extract sender and callData
+        (
+            address sender,
+            uint256 nonce,
+            bytes memory initCode,
+            bytes memory callData,
+            uint256 callGasLimit,
+            uint256 verificationGasLimit,
+            uint256 preVerificationGas,
+            uint256 maxFeePerGas,
+            uint256 maxPriorityFeePerGas,
+            bytes memory paymasterAndData,
+            bytes memory signature
+        ) = abi.decode(userOp, (address, uint256, bytes, bytes, uint256, uint256, uint256, uint256, uint256, bytes, bytes));
+        bytes32 root = policyRoots[sender];
         
         if (root == bytes32(0)) {
             revert RootNotSet();
         }
 
-        (bytes32[] memory proof, Permission memory permission, bytes memory signature) =
+        (bytes32[] memory proof, Permission memory permission, bytes memory sig) =
             abi.decode(guardData, (bytes32[], Permission, bytes));
 
-        if (!ClankerGateCore.verifyMerkleProof(root, proof, permission, userOp.sender, nonces[userOp.sender])) {
+        if (!ClankerGateCore.verifyMerkleProof(root, proof, permission, sender, nonces[sender])) {
             revert InvalidProof();
         }
 
@@ -117,7 +158,7 @@ contract ClankerGate4337 {
 
         // Decode execute() wrapper
         (address actualTarget, uint256 innerOffset, uint256 innerLength, uint256 callValue) = 
-            ClankerGateCore.decodeExecuteCall(userOp.callData);
+            ClankerGateCore.decodeExecuteCallMemory(callData);
 
         // CG-10: Validate msg.value against permission.maxValue
         if (callValue > permission.maxValue) {
@@ -132,12 +173,19 @@ contract ClankerGate4337 {
         }
 
         // Validate calldata rules
-        bytes calldata innerCallData = innerLength > 0
-            ? userOp.callData[innerOffset:innerOffset + innerLength]
-            : userOp.callData;
+        bytes memory innerCallData = new bytes(innerLength > 0 ? innerLength : callData.length);
+        if (innerLength > 0) {
+            for (uint256 i = 0; i < innerLength; i++) {
+                innerCallData[i] = callData[innerOffset + i];
+            }
+        } else {
+            for (uint256 i = 0; i < callData.length; i++) {
+                innerCallData[i] = callData[i];
+            }
+        }
 
         (bool valid, uint8 valErrorCode, uint256 ruleIndex) = 
-            ClankerGateCore.validateCallDataExtended(innerCallData, permission);
+            ClankerGateCore.validateCallDataMemoryExtended(innerCallData, permission);
         if (!valid) {
             if (valErrorCode == ERR_INVALID_LENGTH || valErrorCode == ERR_SELECTOR_MISMATCH) {
                 return _packValidationData(true, 0, 0);
@@ -147,25 +195,25 @@ contract ClankerGate4337 {
         }
 
         // Validate signature
-        address signer = userOpHash.recover(signature);
-        address owner = _getOwner(userOp.sender);
+        address signer = userOpHash.recover(sig);
+        address owner = _getOwner(sender);
         if (signer != owner) {
             revert UnauthorizedSigner(owner, signer);
         }
 
         // Check singleUse permission - use account-scoped hash to prevent collision attacks
-        bytes32 permissionHash = ClankerGateCore.hashPermissionWithAccount(userOp.sender, permission, nonces[userOp.sender]);
+        bytes32 permissionHash = ClankerGateCore.hashPermissionWithAccount(sender, permission, nonces[sender]);
         if (permission.singleUse) {
             // CG-01: Prevent anyone from directly calling validateUserOp to front-run and mark singleUse.
-            // Only userOp.sender (the account) can mark its own permissions as used.
-            if (msg.sender != userOp.sender) revert UnauthorizedCaller();
-            if (usedPermissionHashes[userOp.sender][permissionHash]) {
+            // Only sender (the account) can mark its own permissions as used.
+            if (msg.sender != sender) revert UnauthorizedCaller();
+            if (usedPermissionHashes[sender][permissionHash]) {
                 revert ClankerGateCore.PermissionAlreadyUsed(permissionHash);
             }
-            usedPermissionHashes[userOp.sender][permissionHash] = true;
+            usedPermissionHashes[sender][permissionHash] = true;
         }
 
-        emit ValidationSucceeded(userOp.sender, permissionHash);
+        emit ValidationSucceeded(sender, permissionHash);
         return 0;
     }
 
@@ -201,7 +249,8 @@ contract ClankerGate4337 {
         uint48 validAfter,
         uint48 validUntil,
         uint256 chainId,
-        bool singleUse
+        bool singleUse,
+        uint256 maxValue
     ) external view returns (bytes32) {
         Permission memory permission;
         permission.target = target;
@@ -211,6 +260,7 @@ contract ClankerGate4337 {
         permission.validUntil = validUntil;
         permission.chainId = chainId;
         permission.singleUse = singleUse;
+        permission.maxValue = maxValue;
         return ClankerGateCore.hashPermission(permission);
     }
 
@@ -224,7 +274,8 @@ contract ClankerGate4337 {
         uint48 validAfter,
         uint48 validUntil,
         uint256 chainId,
-        bool singleUse
+        bool singleUse,
+        uint256 maxValue
     ) external view returns (bytes32) {
         Permission memory permission;
         permission.target = target;
@@ -234,6 +285,7 @@ contract ClankerGate4337 {
         permission.validUntil = validUntil;
         permission.chainId = chainId;
         permission.singleUse = singleUse;
+        permission.maxValue = maxValue;
         return ClankerGateCore.hashPermissionWithAccount(account, permission, nonces[account]);
     }
 }

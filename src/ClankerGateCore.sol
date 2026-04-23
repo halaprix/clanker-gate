@@ -47,6 +47,7 @@ struct Permission {
     uint256 chainId;
     bool singleUse;
     uint256 maxValue; /// @dev Maximum ETH value (msg.value) allowed. 0 = no ETH transfer allowed.
+    address authorizedCaller; /// @dev Authorised caller - if set, only this address can use this permission.
 }
 
 /// @title ClankerGateCore - Shared validation logic for all ClankerGate implementations
@@ -343,7 +344,8 @@ library ClankerGateCore {
             permission.validUntil,
             permission.chainId,
             permission.singleUse,
-            permission.maxValue
+            permission.maxValue,
+            permission.authorizedCaller
         ));
 
         bytes32 domainSeparator = keccak256(abi.encode(

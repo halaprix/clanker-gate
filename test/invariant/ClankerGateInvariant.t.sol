@@ -38,6 +38,23 @@ contract InvariantHandler {
         owner = vm.addr(_ownerKey);
     }
 
+    /// @notice Encode UserOperation as bytes for validateUserOp (which now takes bytes)
+    function _encodeUserOp(IEntryPoint.UserOperation memory userOp) internal pure returns (bytes memory) {
+        return abi.encode(
+            userOp.sender,
+            userOp.nonce,
+            userOp.initCode,
+            userOp.callData,
+            userOp.callGasLimit,
+            userOp.verificationGasLimit,
+            userOp.preVerificationGas,
+            userOp.maxFeePerGas,
+            userOp.maxPriorityFeePerGas,
+            userOp.paymasterAndData,
+            userOp.signature
+        );
+    }
+
     function setPolicyRoot(bytes32 root) external {
         ghost_lastRoot = root;
         ghost_nonce++;
@@ -58,7 +75,7 @@ contract InvariantHandler {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        try gate.validateUserOp(userOp, userOpHash, guardData) returns (uint256 result) {
+        try gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData) returns (uint256 result) {
             return result;
         } catch {
             return 1;
@@ -69,6 +86,23 @@ contract InvariantHandler {
 contract ClankerGateInvariantTest is Test {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
+
+    /// @notice Encode UserOperation as bytes for validateUserOp (which now takes bytes)
+    function _encodeUserOp(IEntryPoint.UserOperation memory userOp) internal pure returns (bytes memory) {
+        return abi.encode(
+            userOp.sender,
+            userOp.nonce,
+            userOp.initCode,
+            userOp.callData,
+            userOp.callGasLimit,
+            userOp.verificationGasLimit,
+            userOp.preVerificationGas,
+            userOp.maxFeePerGas,
+            userOp.maxPriorityFeePerGas,
+            userOp.paymasterAndData,
+            userOp.signature
+        );
+    }
 
     ClankerGate4337 gate;
     MockAccount account;
@@ -121,7 +155,7 @@ contract ClankerGateInvariantTest is Test {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(ClankerGate4337.RootNotSet.selector);
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
 
         // Restore root
         vm.prank(address(account));
@@ -142,7 +176,7 @@ contract ClankerGateInvariantTest is Test {
         permission.chainId = 0;
         permission.singleUse = false;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)) + 1);
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(address(account));
@@ -163,7 +197,7 @@ contract ClankerGateInvariantTest is Test {
             block.timestamp,
             permission.validUntil
         ));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     // Invariant 4: Future permissions are rejected (using test prefix for expectRevert)
@@ -177,7 +211,7 @@ contract ClankerGateInvariantTest is Test {
         permission.chainId = 0;
         permission.singleUse = false;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)) + 1);
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(address(account));
@@ -198,7 +232,7 @@ contract ClankerGateInvariantTest is Test {
             block.timestamp,
             permission.validAfter
         ));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     // Invariant 5: ChainId mismatch is always rejected
@@ -212,7 +246,7 @@ contract ClankerGateInvariantTest is Test {
         permission.chainId = 999; // Wrong chain
         permission.singleUse = false;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)) + 1);
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(address(account));
@@ -233,7 +267,7 @@ contract ClankerGateInvariantTest is Test {
             permission.chainId,
             block.chainid
         ));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     // Invariant 6: OP_IN only allows values in set
@@ -253,7 +287,7 @@ contract ClankerGateInvariantTest is Test {
         permission.chainId = 0;
         permission.singleUse = false;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)) + 1);
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(address(account));
@@ -275,7 +309,7 @@ contract ClankerGateInvariantTest is Test {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0, "Value in set should pass");
 
         // Value 999 is NOT in set - should revert
@@ -292,7 +326,7 @@ contract ClankerGateInvariantTest is Test {
             bytes32(uint256(999)),
             allowedValues
         ));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     // Invariant 7: Single-use permissions can only be used once
@@ -306,7 +340,7 @@ contract ClankerGateInvariantTest is Test {
         permission.chainId = 0;
         permission.singleUse = true;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)) + 1);
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(address(account));
@@ -323,11 +357,12 @@ contract ClankerGateInvariantTest is Test {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         // First use - should pass
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
+        vm.prank(address(account));
+        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
         assertEq(result, 0);
 
         // Verify it's marked as used (with account-scoped hash)
-        bytes32 accountPermissionHash = ClankerGateCore.hashPermissionWithAccount(address(account), permission);
+        bytes32 accountPermissionHash = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)));
         assertTrue(gate.usedPermissionHashes(address(account), accountPermissionHash));
 
         // Second use - should revert
@@ -335,7 +370,8 @@ contract ClankerGateInvariantTest is Test {
             ClankerGateCore.PermissionAlreadyUsed.selector,
             accountPermissionHash
         ));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        vm.prank(address(account));
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 
     // Invariant 8: Only authorized signer can validate
@@ -349,7 +385,7 @@ contract ClankerGateInvariantTest is Test {
         permission.chainId = 0;
         permission.singleUse = false;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)) + 1);
         bytes32[] memory proof = new bytes32[](0);
 
         vm.prank(address(account));
@@ -374,6 +410,6 @@ contract ClankerGateInvariantTest is Test {
             owner,
             wrongSigner
         ));
-        gate.validateUserOp(userOp, userOpHash, guardData);
+        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
     }
 }
