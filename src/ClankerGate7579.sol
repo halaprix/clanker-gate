@@ -429,16 +429,39 @@ contract ClankerGate7579 {
     function _getExpectedSigner(address account) internal view returns (address) {
         AccountConfig storage config = accountConfigs[account];
         address sigValidator = config.signatureValidator;
-        
+
         if (sigValidator == address(0)) {
-            // Use account's owner() function with fallback handling
-            try IERC7579Account(account).owner() returns (address owner) {
-                return owner;
-            } catch {
-                revert AccountHasNoOwner(account);
+            // CG-11: Use low-level staticcall with bounded output (32 bytes) to prevent
+            // return data bomb attacks. Malicious contracts could return massive payloads
+            // to exhaust memory with high-level try/catch which allocates full return data.
+            // First check cached owner from onInstall
+            if (config.owner != address(0)) {
+                return config.owner;
             }
+            // Then try low-level staticcall
+            bool success;
+            address owner;
+            assembly {
+                let ptr := mload(0x40)  // use free memory pointer
+                mstore(ptr, 0x5c60da1b00000000000000000000000000000000000000000000000000000000)
+                success := staticcall(gas(), account, ptr, 0x04, ptr, 0x20)
+                if success {
+                    owner := and(mload(ptr), 0xffffffffffffffffffffffffffffffffffffffff)
+                }
+            }
+            // Fallback to high-level call if staticcall failed
+            if (!success || owner == address(0)) {
+                (bool callSuccess, bytes memory returnData) = account.staticcall(
+                    abi.encodeWithSelector(IERC7579Account.owner.selector)
+                );
+                if (callSuccess && returnData.length >= 32) {
+                    owner = abi.decode(returnData, (address));
+                }
+                if (owner == address(0)) revert AccountHasNoOwner(account);
+            }
+            return owner;
         }
-        
+
         // Use custom signature validator
         return sigValidator;
     }

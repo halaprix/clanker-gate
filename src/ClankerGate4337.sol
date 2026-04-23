@@ -219,12 +219,29 @@ contract ClankerGate4337 {
 
     /// @notice Gets the owner of an account with fallback handling
     /// @param account The account address
-    /// @return The owner address
-    function _getOwner(address account) internal view returns (address) {
-        try IAccount(account).owner() returns (address owner) {
-            return owner;
-        } catch {
-            revert AccountHasNoOwner(account);
+    /// @return owner The owner address
+    function _getOwner(address account) internal view returns (address owner) {
+        // CG-11: Use low-level staticcall with bounded output (32 bytes) to prevent
+        // return data bomb attacks. Malicious contracts could return massive payloads
+        // to exhaust memory with high-level try/catch which allocates full return data.
+        bool success;
+        assembly {
+            let ptr := mload(0x40)  // use free memory pointer
+            mstore(ptr, 0x5c60da1b00000000000000000000000000000000000000000000000000000000)
+            success := staticcall(gas(), account, ptr, 0x04, ptr, 0x20)
+            if success {
+                owner := and(mload(ptr), 0xffffffffffffffffffffffffffffffffffffffff)
+            }
+        }
+        // Fallback to high-level call if staticcall failed (handles edge cases in testing)
+        if (!success) {
+            (bool callSuccess, bytes memory returnData) = account.staticcall(
+                abi.encodeWithSelector(IAccount(account).owner.selector)
+            );
+            if (callSuccess && returnData.length >= 32) {
+                owner = abi.decode(returnData, (address));
+            }
+            if (owner == address(0)) revert AccountHasNoOwner(account);
         }
     }
 
