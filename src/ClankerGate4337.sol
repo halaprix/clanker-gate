@@ -79,7 +79,8 @@ contract ClankerGate4337 {
     /// @param account The account address to set the policy root for
     /// @param root The Merkle root of the permission tree (0 to disable)
     function setPolicyRoot(address account, bytes32 root) external {
-        if (msg.sender != account && msg.sender != IAccount(account).owner()) revert UnauthorizedCaller();
+        // CG-22: Limit gas to prevent griefing from malicious owner() implementations
+        _assertCallerIsAccountOrOwner(account, 30000);
         policyRoots[account] = root;
         nonces[account]++;
         emit PolicyRootSet(account, root, nonces[account]);
@@ -91,7 +92,7 @@ contract ClankerGate4337 {
     /// @param permission The permission to compute leaf from
     /// @param nonce The nonce to bind to (use nonces[account] before incrementing)
     function setPolicyRootWithPermission(address account, Permission memory permission, uint256 nonce) external {
-        if (msg.sender != account && msg.sender != IAccount(account).owner()) revert UnauthorizedCaller();
+        _assertCallerIsAccountOrOwner(account, 30000);
         bytes32 leaf = ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
         policyRoots[account] = leaf;
         nonces[account]++;
@@ -215,6 +216,25 @@ contract ClankerGate4337 {
 
         emit ValidationSucceeded(sender, permissionHash);
         return 0;
+    }
+
+    /// @notice Assert caller is account or owner (with bounded gas to prevent griefing)
+    /// @param account The account to check
+    /// @param gasLimit Maximum gas to allow for owner() call
+    function _assertCallerIsAccountOrOwner(address account, uint64 gasLimit) internal {
+        if (msg.sender == account) return;
+        // CG-22: Use low-level call with bounded gas to prevent owner() griefing
+        bool success;
+        address owner;
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, 0x5c60da1b00000000000000000000000000000000000000000000000000000000)
+            success := call(gasLimit, account, 0, ptr, 0x04, ptr, 0x20)
+            if success {
+                owner := and(mload(ptr), 0xffffffffffffffffffffffffffffffffffffffff)
+            }
+        }
+        if (!success || msg.sender != owner) revert UnauthorizedCaller();
     }
 
     /// @notice Gets the owner of an account with fallback handling
