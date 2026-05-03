@@ -289,11 +289,18 @@ contract ClankerGate7579 {
         }
 
         // Validate calldata rules
+        // CG-13 fix: use identity precompile (memory copy) instead of O(N) byte-by-byte loop
         bytes memory innerCallData;
         if (innerLength > 0 && callData.length >= innerOffset + innerLength) {
             innerCallData = new bytes(innerLength);
-            for (uint256 i; i < innerLength; ++i) {
-                innerCallData[i] = callData[innerOffset + i];
+            bytes memory src;
+            assembly {
+                src := add(callData, 32)
+                mstore(innerCallData, innerLength)
+            }
+            assembly {
+                // identity precompile at 0x04 for efficient memory-to-memory copy
+                pop(staticcall(gas(), 0x04, add(src, innerOffset), innerLength, add(innerCallData, 32), innerLength))
             }
         } else {
             innerCallData = callData;

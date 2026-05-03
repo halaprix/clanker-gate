@@ -67,14 +67,32 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
   return {
     address,
 
-    async getAuthorization(safe: Address): Promise<{ policyRoot: Hash; nonce: bigint; enabled: boolean }> {
+    async getAuthorization(safe: Address): Promise<{ policyRoot: Hash; nonce: bigint; whitelistVersion: bigint; enabled: boolean }> {
       const result = await publicClient.readContract({
         address,
         abi: ClankerGateSafeABI,
         functionName: 'authorizations',
         args: [safe],
       });
-      return result as { policyRoot: Hash; nonce: bigint; enabled: boolean };
+      return result as { policyRoot: Hash; nonce: bigint; whitelistVersion: bigint; enabled: boolean };
+    },
+
+    async getNonce(safe: Address): Promise<bigint> {
+      return publicClient.readContract({
+        address,
+        abi: ClankerGateSafeABI,
+        functionName: 'nonces',
+        args: [safe],
+      }) as Promise<bigint>;
+    },
+
+    async delegatecallWhitelistVersion(safe: Address, target: Address): Promise<bigint> {
+      return publicClient.readContract({
+        address,
+        abi: ClankerGateSafeABI,
+        functionName: 'delegatecallWhitelistVersion',
+        args: [safe, target],
+      }) as Promise<bigint>;
     },
 
     async isAuthorizedCaller(safe: Address, caller: Address): Promise<boolean> {
@@ -126,6 +144,21 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
         abi: ClankerGateSafeABI,
         functionName: 'deauthorizeCaller',
         args: [params.safe, params.caller],
+        account: params.account,
+        chain,
+      });
+    },
+
+    setDelegatecallWhitelist(params: { safe: Address; target: Address; allowed: boolean; account: Address | Account }) {
+      if (!walletClient) {
+        throw new Error('Wallet client required for write operations');
+      }
+
+      return walletClient.writeContract({
+        address,
+        abi: ClankerGateSafeABI,
+        functionName: 'setDelegatecallWhitelist',
+        args: [params.safe, params.target, params.allowed],
         account: params.account,
         chain,
       });
@@ -238,6 +271,9 @@ function encodePermissionStruct(permission: Permission): {
   validAfter: number;
   validUntil: number;
   chainId: bigint;
+  singleUse: boolean;
+  maxValue: bigint;
+  authorizedCaller: Address;
 } {
   return {
     target: permission.target,
@@ -251,6 +287,9 @@ function encodePermissionStruct(permission: Permission): {
     validAfter: permission.validAfter,
     validUntil: permission.validUntil,
     chainId: BigInt(permission.chainId),
+    singleUse: permission.singleUse ?? false,
+    maxValue: permission.maxValue ?? 0n,
+    authorizedCaller: permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
   };
 }
 

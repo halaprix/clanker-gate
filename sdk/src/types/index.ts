@@ -61,6 +61,8 @@ export interface ParamRule {
   readonly value: Hex32;
   /** Array of allowed values (used for OP_IN) */
   readonly values?: readonly Hex32[];
+  /** Maximum value for the parameter (used for range checks with OP_LTE/OP_GT/OP_GTE) */
+  readonly maxValue?: bigint;
 }
 
 /**
@@ -98,6 +100,10 @@ export interface Permission {
   readonly chainId: number;
   /** Whether this permission can only be used once (default: false) */
   readonly singleUse?: boolean;
+  /** Maximum ETH value (msg.value) allowed. 0 = no ETH transfer allowed. */
+  readonly maxValue?: bigint;
+  /** Authorised caller - if set, only this address can use this permission. */
+  readonly authorizedCaller?: Address;
 }
 
 /**

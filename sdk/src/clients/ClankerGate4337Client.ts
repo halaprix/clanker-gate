@@ -82,7 +82,7 @@ export function createClankerGate4337Client(config: ClankerGate4337ClientConfig)
         address,
         abi: ClankerGate4337ABI,
         functionName: 'setPolicyRoot',
-        args: [params.root],
+        args: [params.account, params.root],
         account: params.account,
         chain,
       });
@@ -127,12 +127,13 @@ export function createClankerGate4337Client(config: ClankerGate4337ClientConfig)
   };
 }
 
-function encodePermission(permission: Permission): readonly [Address, Hex, readonly (readonly [bigint, number, Hex, readonly Hex[]])[], number, number, bigint, boolean] {
-  const rulesEncoded = permission.rules.map((rule): readonly [bigint, number, Hex, readonly Hex[]] => [
+function encodePermission(permission: Permission): readonly [Address, Hex, readonly (readonly [bigint, number, Hex, readonly Hex[], bigint])[], number, number, bigint, boolean, bigint, Address] {
+  const rulesEncoded = permission.rules.map((rule): readonly [bigint, number, Hex, readonly Hex[], bigint] => [
     BigInt(rule.offset),
     rule.op,
     rule.value,
-    rule.values ?? [],
+    rule.values ?? ([] as readonly Hex[]),
+    rule.maxValue !== undefined ? BigInt(rule.maxValue) : 0n,
   ]);
 
   return [
@@ -143,12 +144,14 @@ function encodePermission(permission: Permission): readonly [Address, Hex, reado
     permission.validUntil,
     BigInt(permission.chainId),
     permission.singleUse ?? false,
+    permission.maxValue ?? 0n,
+    permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
   ];
 }
 
 function encodeGuardData(proof: readonly Hash[], permission: ReturnType<typeof encodePermission>, signature: Hex): Hex {
   return encodeAbiParameters(
-    parseAbiParameters('bytes32[], (address, bytes4, (uint256, uint8, bytes32, bytes32[])[], uint48, uint48, uint256, bool), bytes'),
+    parseAbiParameters('bytes32[], (address, bytes4, (uint256, uint8, bytes32, bytes32[], uint256)[], uint48, uint48, uint256, bool, uint256, address), bytes'),
     [proof, permission, signature]
   );
 }

@@ -12,6 +12,27 @@
   },
   {
     "type": "error",
+    "name": "InvalidAddressPadding",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidExecuteEncoding",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidOperator",
+    "inputs": [
+      {
+        "name": "op",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "PermissionAlreadyUsed",
     "inputs": [
       {
@@ -44,6 +65,54 @@
         "name": "actual",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooManyRules",
+    "inputs": [
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxAllowed",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooManyValues",
+    "inputs": [
+      {
+        "name": "count",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxAllowed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ValueExceedsPermission",
+    "inputs": [
+      {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxValue",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

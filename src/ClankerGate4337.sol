@@ -31,11 +31,6 @@ import {ClankerGateCore, Permission, ParamRule, ERR_INVALID_LENGTH, ERR_SELECTOR
 contract ClankerGate4337 {
     using ECDSA for bytes32;
 
-    // DEBUG function - remove after testing
-    function computeLeafFromTest(address account, Permission memory permission, uint256 nonce) external view returns (bytes32) {
-        return ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
-    }
-
     /// @notice Mapping from account address to their policy Merkle root
     mapping(address => bytes32) public policyRoots;
 
@@ -174,15 +169,21 @@ contract ClankerGate4337 {
         }
 
         // Validate calldata rules
-        bytes memory innerCallData = new bytes(innerLength > 0 ? innerLength : callData.length);
+        // CG-13 fix: use identity precompile (memory copy) instead of O(N) byte-by-byte loop
+        bytes memory innerCallData;
         if (innerLength > 0) {
-            for (uint256 i = 0; i < innerLength; i++) {
-                innerCallData[i] = callData[innerOffset + i];
+            innerCallData = new bytes(innerLength);
+            bytes memory src;
+            assembly {
+                src := add(callData, 32)
+                mstore(innerCallData, innerLength)
+            }
+            assembly {
+                // identity precompile at 0x04 for efficient memory-to-memory copy
+                pop(staticcall(gas(), 0x04, add(src, innerOffset), innerLength, add(innerCallData, 32), innerLength))
             }
         } else {
-            for (uint256 i = 0; i < callData.length; i++) {
-                innerCallData[i] = callData[i];
-            }
+            innerCallData = callData;
         }
 
         (bool valid, uint8 valErrorCode, uint256 ruleIndex) = 
