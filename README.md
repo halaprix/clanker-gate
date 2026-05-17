@@ -1,5 +1,13 @@
 # ClankerGate
 
+```
+________            __             ______      __     
+  / ____/ /___ _____  / /_____  _____/ ____/___ _/ /____ 
+ / /   / / __ `/ __ \/ //_/ _ \/ ___/ / __/ __ `/ __/ _ \
+/ /___/ / /_/ / / / / ,< /  __/ /  / /_/ / /_/ / /_/  __/
+\____/_/\__,_/_/ /_/_/|_|\___/_/   \____/\__,_/\__/\___/ 
+```
+
 **Stateful Transaction Validator for Smart Accounts**
 
 ClankerGate is a validation module that enables defining granular transaction policies without giving external executors full private key access. It acts as a "guard" for various types of Smart Accounts, verifying on-chain whether operations fall within defined boundaries.
@@ -89,7 +97,6 @@ clanker-gate/
 │       │   └── ClankerGate7579Client.ts
 │       └── __tests__/                # 156 SDK tests
 ├── ARCHITECTURE.md                   # Detailed architecture docs
-└── TODO.md                           # Progress tracking
 ```
 
 ## Quick Start
@@ -389,7 +396,7 @@ struct Permission {
 ```bash
 # Foundry (Solidity)
 forge test --summary
-# 126 tests passing
+# 148 tests passing
 
 # SDK (TypeScript)
 cd sdk && pnpm test
@@ -416,7 +423,6 @@ cd sdk && pnpm test
 ## Documentation
 
 - `ARCHITECTURE.md` - Detailed architecture and design decisions
-- `TODO.md` - Implementation progress
 - SDK TSDoc - API documentation in code
 
 ## License
