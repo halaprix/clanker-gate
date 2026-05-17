@@ -10,7 +10,7 @@
 
 This document serves as the main security audit report gathering findings from specialized security analyses.
 
-**⚠️ NOTE (May 2026):** Most critical and high severity findings have been **fixed** in the codebase. See the Status column in the table below. All fixes verified with passing Foundry tests (148 tests passing). Only CG-04, CG-08, CG-09, CG-11, CG-13, CG-20b, CG-21 remain unverified.
+**⚠️ NOTE (May 2026):** Most critical and high severity findings have been **fixed** in the codebase. See the Status column in the table below. All fixes verified with passing Foundry tests (148 tests passing). Only CG-04, CG-08, CG-09, CG-20b, CG-21 remain unverified.
 
 ---
 
@@ -28,9 +28,9 @@ This document serves as the main security audit report gathering findings from s
 | [CG-08](#cg-08-unbounded-array-loop-in-op_in-validation-footgunbundler-griefing) | Unbounded Array Loop in OP_IN Validation (Footgun/Bundler Griefing) | **MEDIUM** | 🔍 Unverified | Not reviewed |
 | [CG-09](#cg-09-persistent-state-consumption-on-execution-revert-single-use-griefing) | Persistent State Consumption on Execution Revert (Single-Use Griefing) | **MEDIUM** | 🔍 Unverified | Not reviewed |
 | [CG-10](#cg-10-unrestricted-native-eth-transfers-via-unchecked-value-execution) | Unrestricted Native ETH Transfers via Unchecked `value` Execution | **CRITICAL** | ✅ Fixed | `maxValue` validation added, tests pass |
-| [CG-11](#cg-11-return-data-bomb-against-trycatch-fallbacks-via-staticcall) | Return Data Bomb against `try/catch` Fallbacks via `staticcall` | **MEDIUM** | 🔍 Unverified | Not reviewed |
+| [CG-11](#cg-11-return-data-bomb-against-trycatch-fallbacks-via-staticcall) | Return Data Bomb against `try/catch` Fallbacks via `staticcall` | **MEDIUM** | ✅ Fixed | Bounded return data size, tests pass |
 | [CG-12](#cg-12-hardcoded-calldata-layout-bypass-vector-169) | Hardcoded Calldata Layout Bypass (Vector 169) | **CRITICAL** | ✅ Fixed | Dynamic `dataOffset` + bounds check |
-| [CG-13](#cg-13-on-byte-byte-calldata-copy-causes-user-self-dos-on-large-payloads) | O(N) Byte-by-Byte Calldata Copy Causes User Self-DoS on Large Payloads | **LOW** | 🔍 Unverified | Not reviewed |
+| [CG-13](#cg-13-on-byte-byte-calldata-copy-causes-user-self-dos-on-large-payloads) | O(N) Byte-by-Byte Calldata Copy Causes User Self-DoS on Large Payloads | **LOW** | ✅ Fixed | Optimized calldata copy, tests pass |
 | [CG-15](#cg-15-incorrect-bit-shift-in-_packvalidationdata-corrupts-erc-4337-timestamps) | Incorrect Bit Shift in `_packValidationData` Corrupts ERC-4337 Timestamps | **HIGH** | ✅ Fixed | `<< 208` correct, tests pass |
 | [CG-18](#cg-18-domain-separator-uses-permissiontarget-instead-of-addressthis) | Domain Separator Uses `permission.target` Instead of `address(this)` — Cross-Contract Replay | **HIGH** | ✅ Fixed | Uses `address(this)` |
 | [CG-19](#cg-19-policy-nonce-absent-from-permission-hash-singleuse-state-desync-on-rotation) | Policy Nonce Absent from Permission Hash — singleUse State Desync on Rotation | **MEDIUM** | ✅ Fixed | Same fix as CG-03 |
