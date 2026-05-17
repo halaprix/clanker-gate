@@ -16,6 +16,12 @@ cache_forge
 out
 dist/
 
+slither-report.json
+resources/smart-sessions-v2/
+src/out.txt
+slither-visual.txt
+sdk/dist/
+
 .vscode
 .idea
 .env

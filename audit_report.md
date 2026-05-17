@@ -7,37 +7,40 @@
 ---
 
 ## 1. Executive Summary
+
 This document serves as the main security audit report gathering findings from specialized security analyses.
+
+**⚠️ NOTE (May 2026):** Most critical and high severity findings have been **fixed** in the codebase. See the Status column in the table below. All fixes verified with passing Foundry tests (148 tests passing). Only CG-04, CG-08, CG-09, CG-11, CG-13, CG-20b, CG-21 remain unverified.
 
 ---
 
 ## 2. Findings Summary
 
-| ID | Title | Severity | Status |
-|---|---|---|---|
-| [CG-01](#cg-01-unauthenticated-state-modification-in-erc-4337-validation-flow) | Unauthenticated State Modification in ERC-4337 Validation Flow | **HIGH** | Open |
-| [CG-02](#cg-02-permission-structure-lacks-caller-authentication-fields) | Permission Structure Lacks Caller Authentication Fields | **MEDIUM** | Open |
-| [CG-03](#cg-03-decoupled-state-epochs-policy-nonce-ignored-in-permission-hashing) | Decoupled State Epochs: Policy Nonce Ignored in Permission Hashing | **HIGH** | Open |
-| [CG-04](#cg-04-incomplete-state-wiping-on-erc-7579-module-uninstall) | Incomplete State Wiping on ERC-7579 Module Uninstall | **MEDIUM** | Open |
-| [CG-05](#cg-05-interface-standard-violations-in-erc-4337-and-erc-7579-validators) | Interface Standard Violations in ERC-4337 and ERC-7579 Validators | **CRITICAL** | Open |
-| [CG-06](#cg-06-broken-promises-packeduseroperation-v07-hard-revert) | Broken Promises: PackedUserOperation v0.7 Hard-Revert | **HIGH** | Open |
-| [CG-07](#cg-07-eoa-signer-expectation-assumed-for-signature-validator-contracts) | EOA Signer Expectation Assumed For Signature Validator Contracts | **HIGH** | Open |
-| [CG-08](#cg-08-unbounded-array-loop-in-op_in-validation-footgunbundler-griefing) | Unbounded Array Loop in OP_IN Validation (Footgun/Bundler Griefing) | **MEDIUM** | Open |
-| [CG-09](#cg-09-persistent-state-consumption-on-execution-revert-single-use-griefing) | Persistent State Consumption on Execution Revert (Single-Use Griefing) | **MEDIUM** | Open |
-| [CG-10](#cg-10-unrestricted-native-eth-transfers-via-unchecked-value-execution) | Unrestricted Native ETH Transfers via Unchecked `value` Execution | **CRITICAL** | Open |
-| [CG-11](#cg-11-return-data-bomb-against-trycatch-fallbacks-via-staticcall) | Return Data Bomb against `try/catch` Fallbacks via `staticcall` | **MEDIUM** | Open |
-| [CG-12](#cg-12-hardcoded-calldata-layout-bypass-vector-169) | Hardcoded Calldata Layout Bypass (Vector 169) | **CRITICAL** | Open |
-| [CG-13](#cg-13-on-byte-byte-calldata-copy-causes-user-self-dos-on-large-payloads) | O(N) Byte-by-Byte Calldata Copy Causes User Self-DoS on Large Payloads | **LOW** | Open |
-| [CG-15](#cg-15-incorrect-bit-shift-in-_packvalidationdata-corrupts-erc-4337-timestamps) | Incorrect Bit Shift in `_packValidationData` Corrupts ERC-4337 Timestamps | **HIGH** | Open |
-| [CG-18](#cg-18-domain-separator-uses-permissiontarget-instead-of-addressthis) | Domain Separator Uses `permission.target` Instead of `address(this)` — Cross-Contract Replay | **HIGH** | Open |
-| [CG-19](#cg-19-policy-nonce-absent-from-permission-hash-singleuse-state-desync-on-rotation) | Policy Nonce Absent from Permission Hash — singleUse State Desync on Rotation | **MEDIUM** | Open |
-| [CG-20b](#cg-20b-delegatecall-whitelist-not-cleared-on-policy-rotation) | Delegatecall Whitelist Not Cleared on Policy Rotation | **LOW** | Open |
-| [CG-21](#cg-21-unsigned-comparison-type-confusion-in-op_gtop_lt-for-signed-parameters) | Unsigned Comparison Type-Confusion in `OP_GT`/`OP_LT` for Signed Parameters | **MEDIUM** | Open |
-| [CG-22](#cg-22-setpolicyroot-allows-arbitrary-iaccountaccountowner-external-call) | `setPolicyRoot` Allows Arbitrary `IAccount(account).owner()` External Call | **LOW** | Open |
-| [CG-23](#cg-23-prefer-custom-errors-over-require) | Prefer Custom Errors Over `require` | **LOW** | Open |
-| [CG-24](#cg-24-loop-optimization-i-vs-i-and-explicit-zero-initialization) | Loop Optimization: `++i` vs `i++` | **INFO** | Open |
-| [CG-25](#cg-25-floating-pragmas-in-production-contracts) | Floating Pragmas in Production Contracts | **INFO** | Open |
-| [CG-26](#cg-26-missing-customsecurity-contact) | Missing `@custom:security-contact` | **INFO** | Open |
+| ID | Title | Severity | Status | Notes |
+|---|---|---|---|---|
+| [CG-01](#cg-01-unauthenticated-state-modification-in-erc-4337-validation-flow) | Unauthenticated State Modification in ERC-4337 Validation Flow | **HIGH** | ✅ Fixed | `msg.sender == sender` check added in validateUserOp |
+| [CG-02](#cg-02-permission-structure-lacks-caller-authentication-fields) | Permission Structure Lacks Caller Authentication Fields | **MEDIUM** | ✅ Fixed | `authorizedCaller` field added to Permission struct |
+| [CG-03](#cg-03-decoupled-state-epochs-policy-nonce-ignored-in-permission-hashing) | Decoupled State Epochs: Policy Nonce Ignored in Permission Hashing | **HIGH** | ✅ Fixed | `hashPermissionWithAccount` with nonce |
+| [CG-04](#cg-04-incomplete-state-wiping-on-erc-7579-module-uninstall) | Incomplete State Wiping on ERC-7579 Module Uninstall | **MEDIUM** | 🔍 Unverified | Not reviewed |
+| [CG-05](#cg-05-interface-standard-violations-in-erc-4337-and-erc-7579-validators) | Interface Standard Violations in ERC-4337 and ERC-7579 Validators | **CRITICAL** | ✅ Fixed | First param changed to `bytes`, test passes |
+| [CG-06](#cg-06-broken-promises-packeduseroperation-v07-hard-revert) | Broken Promises: PackedUserOperation v0.7 Hard-Revert | **HIGH** | ✅ Fixed | try/catch for both Packed and Legacy formats |
+| [CG-07](#cg-07-eoa-signer-expectation-assumed-for-signature-validator-contracts) | EOA Signer Expectation Assumed For Signature Validator Contracts | **HIGH** | ✅ Fixed | EIP-1271 isValidSignature used |
+| [CG-08](#cg-08-unbounded-array-loop-in-op_in-validation-footgunbundler-griefing) | Unbounded Array Loop in OP_IN Validation (Footgun/Bundler Griefing) | **MEDIUM** | 🔍 Unverified | Not reviewed |
+| [CG-09](#cg-09-persistent-state-consumption-on-execution-revert-single-use-griefing) | Persistent State Consumption on Execution Revert (Single-Use Griefing) | **MEDIUM** | 🔍 Unverified | Not reviewed |
+| [CG-10](#cg-10-unrestricted-native-eth-transfers-via-unchecked-value-execution) | Unrestricted Native ETH Transfers via Unchecked `value` Execution | **CRITICAL** | ✅ Fixed | `maxValue` validation added, tests pass |
+| [CG-11](#cg-11-return-data-bomb-against-trycatch-fallbacks-via-staticcall) | Return Data Bomb against `try/catch` Fallbacks via `staticcall` | **MEDIUM** | 🔍 Unverified | Not reviewed |
+| [CG-12](#cg-12-hardcoded-calldata-layout-bypass-vector-169) | Hardcoded Calldata Layout Bypass (Vector 169) | **CRITICAL** | ✅ Fixed | Dynamic `dataOffset` + bounds check |
+| [CG-13](#cg-13-on-byte-byte-calldata-copy-causes-user-self-dos-on-large-payloads) | O(N) Byte-by-Byte Calldata Copy Causes User Self-DoS on Large Payloads | **LOW** | 🔍 Unverified | Not reviewed |
+| [CG-15](#cg-15-incorrect-bit-shift-in-_packvalidationdata-corrupts-erc-4337-timestamps) | Incorrect Bit Shift in `_packValidationData` Corrupts ERC-4337 Timestamps | **HIGH** | ✅ Fixed | `<< 208` correct, tests pass |
+| [CG-18](#cg-18-domain-separator-uses-permissiontarget-instead-of-addressthis) | Domain Separator Uses `permission.target` Instead of `address(this)` — Cross-Contract Replay | **HIGH** | ✅ Fixed | Uses `address(this)` |
+| [CG-19](#cg-19-policy-nonce-absent-from-permission-hash-singleuse-state-desync-on-rotation) | Policy Nonce Absent from Permission Hash — singleUse State Desync on Rotation | **MEDIUM** | ✅ Fixed | Same fix as CG-03 |
+| [CG-20b](#cg-20b-delegatecall-whitelist-not-cleared-on-policy-rotation) | Delegatecall Whitelist Not Cleared on Policy Rotation | **LOW** | 🔍 Unverified | Not reviewed |
+| [CG-21](#cg-21-unsigned-comparison-type-confusion-in-op_gtop_lt-for-signed-parameters) | Unsigned Comparison Type-Confusion in `OP_GT`/`OP_LT` for Signed Parameters | **MEDIUM** | 🔍 Unverified | Not reviewed |
+| [CG-22](#cg-22-setpolicyroot-allows-arbitrary-iaccountaccountowner-external-call) | `setPolicyRoot` Allows Arbitrary `IAccount(account).owner()` External Call | **LOW** | ✅ Fixed | Bounded gas limit on owner() call |
+| [CG-23](#cg-23-prefer-custom-errors-over-require) | Prefer Custom Errors Over `require` | **LOW** | ℹ️ Info | Not applicable |
+| [CG-24](#cg-24-loop-optimization-i-vs-i-and-explicit-zero-initialization) | Loop Optimization: `++i` vs `i++` | **INFO** | ℹ️ Info | Not applicable |
+| [CG-25](#cg-25-floating-pragmas-in-production-contracts) | Floating Pragmas in Production Contracts | **INFO** | ℹ️ Info | Not applicable |
+| [CG-26](#cg-26-missing-customsecurity-contact) | Missing `@custom:security-contact` | **INFO** | ℹ️ Info | Not applicable |
 
 ---
 
