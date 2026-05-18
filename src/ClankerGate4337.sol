@@ -228,11 +228,10 @@ contract ClankerGate4337 {
         bool success;
         address owner;
         assembly {
-            let ptr := mload(0x40)
-            mstore(ptr, 0x5c60da1b00000000000000000000000000000000000000000000000000000000)
-            success := call(gasLimit, account, 0, ptr, 0x04, ptr, 0x20)
+            mstore(0x00, 0x5c60da1b00000000000000000000000000000000000000000000000000000000)
+            success := call(gasLimit, account, 0, 0x00, 0x04, 0x00, 0x20)
             if success {
-                owner := and(mload(ptr), 0xffffffffffffffffffffffffffffffffffffffff)
+                owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
             }
         }
         if (!success || msg.sender != owner) revert UnauthorizedCaller();
@@ -247,11 +246,10 @@ contract ClankerGate4337 {
         // to exhaust memory with high-level try/catch which allocates full return data.
         bool success;
         assembly {
-            let ptr := mload(0x40)  // use free memory pointer
-            mstore(ptr, 0x5c60da1b00000000000000000000000000000000000000000000000000000000)
-            success := staticcall(gas(), account, ptr, 0x04, ptr, 0x20)
+            mstore(0x00, 0x5c60da1b00000000000000000000000000000000000000000000000000000000)
+            success := staticcall(gas(), account, 0x00, 0x04, 0x00, 0x20)
             if success {
-                owner := and(mload(ptr), 0xffffffffffffffffffffffffffffffffffffffff)
+                owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
             }
         }
         // Fallback to high-level call if staticcall failed (handles edge cases in testing)

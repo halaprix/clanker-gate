@@ -8,6 +8,10 @@ optimizer_runs = 200
 via_ir = true
 bytecode_hash = "ipfs"
 
+remappings = [
+    "solady/=lib/solady/src/"
+]
+
 [fuzz]
 runs = 256
 

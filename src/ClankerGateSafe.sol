@@ -2,6 +2,7 @@
 pragma solidity 0.8.35;
 
 import {ClankerGateCore, Permission, ParamRule, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH} from "./ClankerGateCore.sol";
+import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 
 /// @title ClankerGateSafe - Gnosis Safe Module
 /// @author Clanker Protocol
@@ -43,12 +44,8 @@ struct CallerAuth {
     bool enabled;
 }
 
-contract ClankerGateSafe {
+contract ClankerGateSafe is ReentrancyGuardTransient {
     using ClankerGateCore for Permission;
-
-    uint256 private constant _NOT_ENTERED = 1;
-    uint256 private constant _ENTERED = 2;
-    uint256 private _reentrancyStatus = _NOT_ENTERED;
 
     /// @notice Mapping from Safe address to caller authorizations
     mapping(address => CallerAuth) public authorizations;
@@ -104,19 +101,9 @@ contract ClankerGateSafe {
     error PermissionExpired(uint256 currentTime, uint256 validUntil);
     error ChainIdMismatch(uint256 expected, uint256 actual);
     error DelegatecallNotAllowed(address target);
-    error ReentrantCall();
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
     error MustBeCalledDirectlyBySafe();
     error UnauthorizedCallerForPermission(address caller, address expected);
-
-    modifier nonReentrant() {
-        if (_reentrancyStatus == _ENTERED) {
-            revert ReentrantCall();
-        }
-        _reentrancyStatus = _ENTERED;
-        _;
-        _reentrancyStatus = _NOT_ENTERED;
-    }
 
     /// @notice Sets the policy root for a Safe (only callable by Safe or owner)
     /// @param safe The Safe address
