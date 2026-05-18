@@ -81,7 +81,7 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes32 userOpHash = keccak256("test");
         bytes memory guardData =
-            abi.encode(new bytes32[](0), Permission(address(0), bytes4(0), new ParamRule[](0), 0, 0, 0, false, 0, address(0)), hex"");
+            abi.encode(new bytes32[](0), Permission(address(0), bytes4(0), 0, 0, false, 0, 0, address(0), new ParamRule[](0)), hex"");
 
         vm.expectRevert(ClankerGate4337.RootNotSet.selector);
         gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);

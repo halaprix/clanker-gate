@@ -52,11 +52,11 @@ contract ClankerGate7579 {
 
     /// @notice Per-account configuration
     struct AccountConfig {
-        address owner;
         bytes32 policyRoot;
         uint256 nonce;
-        address signatureValidator;
+        address owner;
         bool installed;
+        address signatureValidator;
     }
 
     /// @notice Mapping from account address to configuration

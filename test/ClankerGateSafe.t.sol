@@ -57,7 +57,7 @@ contract SetPolicyRootTests is ClankerGateSafeTest {
         vm.prank(address(safe));
         gate.setPolicyRoot(address(safe), bytes32(uint256(1)));
 
-        (bytes32 root, uint256 nonce, uint256 whitelistVersion, bool enabled) = gate.authorizations(address(safe));
+        (bytes32 root, uint256 nonce, uint248 whitelistVersion, bool enabled) = gate.authorizations(address(safe));
         assertEq(root, bytes32(uint256(1)));
         assertEq(nonce, 1);
         assertTrue(enabled);
@@ -67,7 +67,7 @@ contract SetPolicyRootTests is ClankerGateSafeTest {
         vm.prank(address(safe));
         gate.setPolicyRoot(address(safe), bytes32(uint256(2)));
 
-        (bytes32 root, uint256 nonce, uint256 whitelistVersion, ) = gate.authorizations(address(safe));
+        (bytes32 root, uint256 nonce, uint248 whitelistVersion, ) = gate.authorizations(address(safe));
         assertEq(root, bytes32(uint256(2)));
         assertEq(nonce, 1);
     }
@@ -85,7 +85,7 @@ contract SetPolicyRootTests is ClankerGateSafeTest {
         vm.prank(address(safe));
         gate.setPolicyRoot(address(safe), bytes32(uint256(2)));
 
-        (, uint256 nonce, uint256 whitelistVersion, ) = gate.authorizations(address(safe));
+        (, uint256 nonce, uint248 whitelistVersion, ) = gate.authorizations(address(safe));
         assertEq(nonce, 2);
     }
 }

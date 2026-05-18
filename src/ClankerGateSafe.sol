@@ -39,7 +39,7 @@ interface ISafe {
 struct CallerAuth {
     bytes32 policyRoot;
     uint256 nonce;
-    uint256 whitelistVersion; // CG-20b: Version to invalidate old whitelist entries on rotation
+    uint248 whitelistVersion; // CG-20b: Version to invalidate old whitelist entries on rotation
     bool enabled;
 }
 
@@ -69,7 +69,7 @@ contract ClankerGateSafe {
 
     /// @notice Mapping from Safe => target => whitelist version (0 = not whitelisted)
     /// @dev CG-20b: Check against authorizations[safe].whitelistVersion - entries from old versions are invalid
-    mapping(address => mapping(address => uint256)) public delegatecallWhitelistVersion;
+    mapping(address => mapping(address => uint248)) public delegatecallWhitelistVersion;
 
     /// @notice Emitted when policy root is set
     event PolicyRootSet(address indexed safe, bytes32 root, uint256 nonce);

@@ -41,13 +41,13 @@ struct ParamRule {
 struct Permission {
     address target;
     bytes4 selector;
-    ParamRule[] rules;
     uint48 validAfter;
     uint48 validUntil;
-    uint256 chainId;
     bool singleUse;
+    uint256 chainId;
     uint256 maxValue; /// @dev Maximum ETH value (msg.value) allowed. 0 = no ETH transfer allowed.
     address authorizedCaller; /// @dev Authorised caller - if set, only this address can use this permission.
+    ParamRule[] rules;
 }
 
 /// @title ClankerGateCore - Shared validation logic for all ClankerGate implementations
