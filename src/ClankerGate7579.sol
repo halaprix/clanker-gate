@@ -2,7 +2,7 @@
 pragma solidity 0.8.35;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {ClankerGateCore, Permission, ParamRule, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH} from "./ClankerGateCore.sol";
+import {ClankerGateCore, Permission, ParamRule, DOMAIN_SEPARATOR_TYPEHASH, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH} from "./ClankerGateCore.sol";
 import {IERC7579Account, MODULE_TYPE_VALIDATOR} from "./interfaces/IERC7579.sol";
 import {IERC1271} from "./interfaces/IERC1271.sol";
 
@@ -539,7 +539,7 @@ contract ClankerGate7579 {
         permission.chainId = chainId;
         permission.singleUse = singleUse;
         permission.maxValue = maxValue;
-        return ClankerGateCore.hashPermission(permission);
+        return ClankerGateCore.hashPermission(permission, DOMAIN_SEPARATOR);
     }
 
     /**
