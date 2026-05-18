@@ -1,7 +1,7 @@
 # ClankerGate
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/halaprix/clanker-gate/master/assets/logo.jpg" alt="ClankerGate Logo" width="300">
+  <img src="https://raw.githubusercontent.com/halaprix/clanker-gate/refs/heads/master/assets/logo.jpg" alt="ClankerGate Logo" width="300">
 </p>
 
 ```
