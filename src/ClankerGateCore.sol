@@ -289,7 +289,7 @@ library ClankerGateCore {
         if (op == OP_GTE) return actual >= expected;
         if (op == OP_LTE) return actual <= expected;
         if (op == OP_IN) {
-            if (values.length > MAX_IN_VALUES) revert TooManyValues(values.length, MAX_IN_VALUES);
+            require(values.length <= MAX_IN_VALUES, TooManyValues(values.length, MAX_IN_VALUES));
             return inArray(actual, values);
         }
         if (op == OP_SGT) {
@@ -330,6 +330,20 @@ library ClankerGateCore {
     ///      to prevent second pre-image attacks on Merkle tree. Rules are hashed individually
     ///      to ensure canonical encoding (reordering doesn't change the hash).
     function hashPermission(Permission memory permission) internal view returns (bytes32) {
+        bytes32 domainSeparator = keccak256(abi.encode(
+            DOMAIN_SEPARATOR_TYPEHASH,
+            keccak256("ClankerGate"),
+            keccak256("1"),
+            block.chainid,
+            address(this)
+        ));
+        return hashPermission(permission, domainSeparator);
+    }
+
+    /// @notice Computes the keccak256 hash of a permission using a pre-computed domainSeparator
+    /// @dev Use this overload when domainSeparator is cached as immutable to save gas.
+    ///      Rules are hashed individually to ensure canonical encoding (reordering doesn't change the hash).
+    function hashPermission(Permission memory permission, bytes32 domainSeparator) internal pure returns (bytes32) {
         bytes32[] memory ruleHashes = new bytes32[](permission.rules.length);
         for (uint256 i; i < permission.rules.length; ++i) {
             ParamRule memory rule = permission.rules[i];
@@ -346,14 +360,6 @@ library ClankerGateCore {
             permission.singleUse,
             permission.maxValue,
             permission.authorizedCaller
-        ));
-
-        bytes32 domainSeparator = keccak256(abi.encode(
-            DOMAIN_SEPARATOR_TYPEHASH,
-            keccak256("ClankerGate"),
-            keccak256("1"),
-            block.chainid,
-            address(this)
         ));
 
         return keccak256(abi.encode(domainSeparator, encodedPermission));

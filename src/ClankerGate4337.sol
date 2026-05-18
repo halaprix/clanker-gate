@@ -31,6 +31,18 @@ import {ClankerGateCore, Permission, ParamRule, ERR_INVALID_LENGTH, ERR_SELECTOR
 contract ClankerGate4337 {
     using ECDSA for bytes32;
 
+    bytes32 private immutable DOMAIN_SEPARATOR;
+
+    constructor() {
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            DOMAIN_SEPARATOR_TYPEHASH,
+            keccak256("ClankerGate"),
+            keccak256("1"),
+            block.chainid,
+            address(this)
+        ));
+    }
+
     /// @notice Mapping from account address to their policy Merkle root
     mapping(address => bytes32) public policyRoots;
 
@@ -208,7 +220,7 @@ contract ClankerGate4337 {
         if (permission.singleUse) {
             // CG-01: Prevent anyone from directly calling validateUserOp to front-run and mark singleUse.
             // Only sender (the account) can mark its own permissions as used.
-            if (msg.sender != sender) revert UnauthorizedCaller();
+            require(msg.sender == sender, UnauthorizedCaller());
             if (usedPermissionHashes[sender][permissionHash]) {
                 revert ClankerGateCore.PermissionAlreadyUsed(permissionHash);
             }
@@ -252,13 +264,14 @@ contract ClankerGate4337 {
                 owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
             }
         }
-        // Fallback to high-level call if staticcall failed (handles edge cases in testing)
+        // Fallback to bounded assembly staticcall if primary failed
         if (!success) {
-            (bool callSuccess, bytes memory returnData) = account.staticcall(
-                abi.encodeWithSelector(IAccount(account).owner.selector)
-            );
-            if (callSuccess && returnData.length >= 32) {
-                owner = abi.decode(returnData, (address));
+            assembly {
+                mstore(0x00, 0x8da5cb5b00000000000000000000000000000000000000000000000000000000)
+                let callSuccess := staticcall(gas(), account, 0x00, 0x04, 0x00, 0x20)
+                if callSuccess {
+                    owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
+                }
             }
             if (owner == address(0)) revert AccountHasNoOwner(account);
         }
@@ -297,7 +310,7 @@ contract ClankerGate4337 {
         permission.chainId = chainId;
         permission.singleUse = singleUse;
         permission.maxValue = maxValue;
-        return ClankerGateCore.hashPermission(permission);
+        return ClankerGateCore.hashPermission(permission, DOMAIN_SEPARATOR);
     }
 
     /// @notice Computes permission hash scoped to an account

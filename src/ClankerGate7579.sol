@@ -48,6 +48,18 @@ import {IERC1271} from "./interfaces/IERC1271.sol";
 contract ClankerGate7579 {
     using ECDSA for bytes32;
 
+    bytes32 private immutable DOMAIN_SEPARATOR;
+
+    constructor() {
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            DOMAIN_SEPARATOR_TYPEHASH,
+            keccak256("ClankerGate"),
+            keccak256("1"),
+            block.chainid,
+            address(this)
+        ));
+    }
+
     // ============ Storage ============
 
     /// @notice Per-account configuration
@@ -455,13 +467,14 @@ contract ClankerGate7579 {
                     owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
                 }
             }
-            // Fallback to high-level call if staticcall failed
+            // Fallback to bounded assembly staticcall if primary failed
             if (!success || owner == address(0)) {
-                (bool callSuccess, bytes memory returnData) = account.staticcall(
-                    abi.encodeWithSelector(IERC7579Account.owner.selector)
-                );
-                if (callSuccess && returnData.length >= 32) {
-                    owner = abi.decode(returnData, (address));
+                assembly {
+                    mstore(0x00, 0x8da5cb5b00000000000000000000000000000000000000000000000000000000)
+                    let callSuccess := staticcall(gas(), account, 0x00, 0x04, 0x00, 0x20)
+                    if callSuccess {
+                        owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
+                    }
                 }
                 if (owner == address(0)) revert AccountHasNoOwner(account);
             }

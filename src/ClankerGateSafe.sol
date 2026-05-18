@@ -47,6 +47,18 @@ struct CallerAuth {
 contract ClankerGateSafe is ReentrancyGuardTransient {
     using ClankerGateCore for Permission;
 
+    bytes32 private immutable DOMAIN_SEPARATOR;
+
+    constructor() {
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            DOMAIN_SEPARATOR_TYPEHASH,
+            keccak256("ClankerGate"),
+            keccak256("1"),
+            block.chainid,
+            address(this)
+        ));
+    }
+
     /// @notice Mapping from Safe address to caller authorizations
     mapping(address => CallerAuth) public authorizations;
 
@@ -109,7 +121,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
     /// @param safe The Safe address
     /// @param root The new policy root
     function setPolicyRoot(address safe, bytes32 root) external {
-        if (msg.sender != safe) revert MustBeCalledDirectlyBySafe();
+        require(msg.sender == safe, MustBeCalledDirectlyBySafe());
         
         authorizations[safe].policyRoot = root;
         authorizations[safe].nonce++;
@@ -132,7 +144,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
     /// @param safe The Safe address
     /// @param caller The caller to authorize
     function authorizeCaller(address safe, address caller) external {
-        if (msg.sender != safe) revert MustBeCalledDirectlyBySafe();
+        require(msg.sender == safe, MustBeCalledDirectlyBySafe());
         
         isAuthorizedCaller[safe][caller] = true;
         emit CallerAuthorized(safe, caller);
@@ -142,7 +154,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
     /// @param safe The Safe address
     /// @param caller The caller to deauthorize
     function deauthorizeCaller(address safe, address caller) external {
-        if (msg.sender != safe) revert MustBeCalledDirectlyBySafe();
+        require(msg.sender == safe, MustBeCalledDirectlyBySafe());
         
         isAuthorizedCaller[safe][caller] = false;
         emit CallerDeauthorized(safe, caller);
@@ -153,7 +165,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
     /// @param target The target address
     /// @param allowed Whether delegatecall is allowed
     function setDelegatecallWhitelist(address safe, address target, bool allowed) external {
-        if (msg.sender != safe) revert MustBeCalledDirectlyBySafe();
+        require(msg.sender == safe, MustBeCalledDirectlyBySafe());
         
         if (allowed) {
             // CG-20b: Store the current whitelist version - entry is valid as long as
@@ -330,7 +342,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         permission.chainId = chainId;
         permission.singleUse = singleUse;
         permission.maxValue = maxValue;
-        return ClankerGateCore.hashPermission(permission);
+        return ClankerGateCore.hashPermission(permission, DOMAIN_SEPARATOR);
     }
 
     /// @notice Compute permission hash scoped to a Safe
