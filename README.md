@@ -1,5 +1,9 @@
 # ClankerGate
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/halaprix/clanker-gate/master/assets/logo.jpg" alt="ClankerGate Logo" width="300">
+</p>
+
 ```
 ________            __             ______      __     
   / ____/ /___ _____  / /_____  _____/ ____/___ _/ /____ 
