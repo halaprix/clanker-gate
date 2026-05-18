@@ -195,7 +195,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         uint8 operation,
         bytes32[] calldata proof,
         Permission calldata permission
-    ) external nonReentrant returns (bool success) {
+    ) external payable nonReentrant returns (bool success) {
         // Check caller is authorized
         if (!isAuthorizedCaller[safe][msg.sender]) {
             revert NotAuthorized();
@@ -224,7 +224,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         uint8 operation,
         bytes32[] calldata proof,
         Permission calldata permission
-    ) external nonReentrant returns (bool success) {
+    ) external payable nonReentrant returns (bool success) {
         // SECURITY FIX: Caller must be authorized even with proof
         // Proof validates WHAT can be done, but caller must be authorized for WHO can do it
         if (!isAuthorizedCaller[safe][msg.sender]) {
@@ -261,6 +261,13 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         // CG-10: Validate value against permission.maxValue
         if (value > permission.maxValue) {
             revert ValueExceedsPermission(value, permission.maxValue);
+        }
+
+        // For DELEGATECALL (operation == 1), msg.value is preserved from the original call.
+        // The `value` parameter may be 0 but actual msg.value could be non-zero.
+        // Add an explicit guard to prevent double-spending of msg.value.
+        if (operation == 1 && msg.value > permission.maxValue) {
+            revert ValueExceedsPermission(msg.value, permission.maxValue);
         }
 
         // Validate permission constraints

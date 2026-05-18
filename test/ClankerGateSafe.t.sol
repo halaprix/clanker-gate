@@ -1062,3 +1062,136 @@ function test_ComputePermissionHash_MatchesLibrary() public {
         assertTrue(hash1 != bytes32(0));
     }
 }
+
+// ============================================================
+//                    DELEGATECALL VALUE GUARD TESTS
+// ============================================================
+
+contract DelegatecallValueTests is ClankerGateSafeTest {
+    function setUp() public override {
+        super.setUp();
+        vm.prank(address(safe));
+        gate.setPolicyRoot(address(safe), bytes32(uint256(1)));
+        vm.prank(address(safe));
+        gate.authorizeCaller(address(safe), caller);
+    }
+
+    function test_RevertWhen_DelegatecallValueExceedsMaxValue() public {
+        // Whitelist target for DELEGATECALL (must be done AFTER setPolicyRoot as it resets nonce)
+        vm.prank(address(safe));
+        gate.setDelegatecallWhitelist(address(safe), address(0x1111), true);
+
+        // Create permission with maxValue = 0.1 ether
+        Permission memory permission;
+        permission.target = address(0x1111);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+        permission.validAfter = 0;
+        permission.validUntil = 0;
+        permission.chainId = 0;
+        permission.maxValue = 0.1 ether;
+
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
+        bytes32[] memory proof = new bytes32[](0);
+        bytes32 root = leaf;
+
+        vm.prank(address(safe));
+        gate.setPolicyRoot(address(safe), root);
+
+        bytes memory data = hex"12345678";
+
+        // Call execTransaction with operation=1 (DELEGATECALL) and value=1 ether
+        // but msg.value = 1 ether > permission.maxValue (0.1 ether)
+        vm.prank(caller);
+        vm.deal(caller, 1 ether);
+        vm.expectRevert(abi.encodeWithSelector(ClankerGateSafe.ValueExceedsPermission.selector, 1 ether, 0.1 ether));
+        gate.execTransaction{value: 1 ether}(
+            address(safe),
+            address(0x1111),
+            0, // value parameter is 0 but msg.value is 1 ether
+            data,
+            1, // DELEGATECALL
+            proof,
+            permission
+        );
+    }
+
+    function test_Success_DelegatecallWithinMaxValue() public {
+        // Create permission with maxValue = 1 ether
+        // Compute hash with nonce=2 (current nonce after initial setup + 1)
+        Permission memory permission;
+        permission.target = address(0x1111);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+        permission.validAfter = 0;
+        permission.validUntil = 0;
+        permission.chainId = 0;
+        permission.maxValue = 1 ether;
+
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
+        bytes32[] memory proof = new bytes32[](0);
+        bytes32 root = leaf;
+
+        vm.prank(address(safe));
+        gate.setPolicyRoot(address(safe), root);
+
+        // Whitelist AFTER setPolicyRoot so it stores the correct whitelistVersion
+        vm.prank(address(safe));
+        gate.setDelegatecallWhitelist(address(safe), address(0x1111), true);
+
+        bytes memory data = hex"12345678";
+
+        // Call execTransaction with operation=1 (DELEGATECALL) and msg.value = 0.5 ether
+        // Should succeed since 0.5 ether <= 1 ether maxValue
+        vm.prank(caller);
+        vm.deal(caller, 1 ether);
+        bool success = gate.execTransaction{value: 0.5 ether}(
+            address(safe),
+            address(0x1111),
+            0,
+            data,
+            1, // DELEGATECALL
+            proof,
+            permission
+        );
+
+        assertTrue(success);
+    }
+
+    function test_Success_CallWithMsgValueWithinMaxValue() public {
+        // Create permission with maxValue = 1 ether
+        Permission memory permission;
+        permission.target = address(0x1111);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+        permission.validAfter = 0;
+        permission.validUntil = 0;
+        permission.chainId = 0;
+        permission.maxValue = 1 ether;
+
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
+        bytes32[] memory proof = new bytes32[](0);
+        bytes32 root = leaf;
+
+        vm.prank(address(safe));
+        gate.setPolicyRoot(address(safe), root);
+
+        bytes memory data = hex"12345678";
+
+        // Call execTransaction with operation=0 (CALL) and msg.value = 0.5 ether
+        // Should succeed since 0.5 ether <= 1 ether maxValue
+        vm.prank(caller);
+        vm.deal(caller, 1 ether);
+        bool success = gate.execTransaction{value: 0.5 ether}(
+            address(safe),
+            address(0x1111),
+            0.5 ether, // value parameter matches msg.value
+            data,
+            0, // CALL
+            proof,
+            permission
+        );
+
+        assertTrue(success);
+    }
+}
