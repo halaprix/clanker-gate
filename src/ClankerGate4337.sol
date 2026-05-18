@@ -125,20 +125,34 @@ contract ClankerGate4337 {
         bytes32 userOpHash,
         bytes calldata guardData
     ) external returns (uint256 validationData) {
-        // Decode UserOperation from bytes to extract sender and callData
-        (
-            address sender,
-            uint256 nonce,
-            bytes memory initCode,
-            bytes memory callData,
-            uint256 callGasLimit,
-            uint256 verificationGasLimit,
-            uint256 preVerificationGas,
-            uint256 maxFeePerGas,
-            uint256 maxPriorityFeePerGas,
-            bytes memory paymasterAndData,
-            bytes memory signature
-        ) = abi.decode(userOp, (address, uint256, bytes, bytes, uint256, uint256, uint256, uint256, uint256, bytes, bytes));
+        // Gas optimization: extract only sender and callData via assembly
+        // instead of full abi.decode which allocates memory for all 11 fields
+        address sender;
+        bytes memory callData;
+        assembly {
+            // sender is at offset 0 in the ABI-encoded tuple
+            sender := calldataload(userOp.offset)
+            
+            // callData is the 4th field (index 3). In ABI encoding:
+            // offset 0: sender (address, 32 bytes padded)
+            // offset 32: nonce (uint256)
+            // offset 64: initCode offset (uint256 pointer)
+            // offset 96: callData offset (uint256 pointer)
+            // The callData offset points to: length(32) + data
+            let cdOffset := calldataload(add(userOp.offset, 96))
+            let cdLen := calldataload(add(userOp.offset, cdOffset))
+            
+            // Allocate memory for callData
+            callData := mload(0x40)
+            mstore(callData, cdLen)
+            
+            // Copy callData bytes from calldata to memory
+            calldatacopy(add(callData, 32), add(userOp.offset, add(cdOffset, 32)), cdLen)
+            
+            // Update free memory pointer (round up cdLen to 32-byte boundary)
+            let roundedLen := and(add(cdLen, 31), not(31))
+            mstore(0x40, add(add(callData, 32), roundedLen))
+        }
         bytes32 root = policyRoots[sender];
         
         if (root == bytes32(0)) {
