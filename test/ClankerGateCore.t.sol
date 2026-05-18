@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity 0.8.35;
 
 import {Test} from "forge-std/Test.sol";
 import {ClankerGateCore, ParamRule, Permission, OP_EQ, OP_GT, OP_LT, OP_GTE, OP_LTE, OP_IN} from "../src/ClankerGateCore.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity 0.8.35;
 
 import {Test, Vm} from "forge-std/Test.sol";
 import {ClankerGate4337} from "../../src/ClankerGate4337.sol";

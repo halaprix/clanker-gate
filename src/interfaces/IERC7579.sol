@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity 0.8.35;
 
 // Module type identifiers
 uint256 constant MODULE_TYPE_VALIDATOR = 1;

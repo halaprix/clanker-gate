@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity 0.8.35;
 
 interface IAccount {
     function validateUserOp(bytes calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds)

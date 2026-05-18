@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.35;
+pragma solidity 0.8.35;
 
 /// @title IERC1271 - Interface for EIP-1271 smart contract signatures
 /// @notice Used for signature validation of smart contract wallets (e.g., Safe)
