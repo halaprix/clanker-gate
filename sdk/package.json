@@ -12,6 +12,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "prepare": "pnpm build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/",
