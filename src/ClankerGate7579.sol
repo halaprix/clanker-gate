@@ -106,6 +106,7 @@ contract ClankerGate7579 {
     error DirectCallRequiresTargetZero(address target);
     error InvalidUserOpFormat();
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
+    error UnauthorizedCallerForPermission(address actual, address expected);
 
     // Error codes - using unique names to avoid shadowing
     uint8 constant ERR_ROOT_NOT_SET_V = 0;
@@ -280,6 +281,14 @@ contract ClankerGate7579 {
             } else {
                 revert ChainIdMismatch(permission.chainId, block.chainid);
             }
+        }
+
+        // H-2: Enforce permission.authorizedCaller (bound to msg.sender which IS the account in the
+        // 7579 validator flow — the account calls the module directly, so msg.sender == account).
+        // Note: Safe binds to the executor msg.sender; here msg.sender is always the account because
+        // the EntryPoint routes through the account before reaching the validator module.
+        if (permission.authorizedCaller != address(0) && permission.authorizedCaller != msg.sender) {
+            revert UnauthorizedCallerForPermission(msg.sender, permission.authorizedCaller);
         }
 
         // Decode UserOperation - support both formats

@@ -707,3 +707,90 @@ contract SessionLifecycleTests is ClankerGateTest {
         assertEq(gate.nonces(address(account)), 3);
     }
 }
+
+// ============================================================
+//              AUTHORIZED CALLER ENFORCEMENT TESTS (H-2)
+// ============================================================
+
+contract AuthorizedCallerTests4337 is ClankerGateTest {
+    /// @notice Build a minimal valid UserOperation bytes for the given sender and callData.
+    function _buildUserOp(address sender, bytes memory callData) internal pure returns (bytes memory) {
+        return abi.encode(
+            sender,
+            uint256(0),
+            bytes(""),
+            callData,
+            uint256(0),
+            uint256(0),
+            uint256(0),
+            uint256(0),
+            uint256(0),
+            bytes(""),
+            bytes("")
+        );
+    }
+
+    /// @notice H-2: A permission whose authorizedCaller does NOT match the account sender
+    /// must revert UnauthorizedCallerForPermission.
+    function test_authorizedCaller_enforced() public {
+        address nonMatchingCaller = address(0xDEAD1234);
+
+        Permission memory permission;
+        permission.target = address(0);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+        permission.validAfter = 0;
+        permission.validUntil = 0;
+        permission.chainId = 0;
+        permission.singleUse = false;
+        permission.maxValue = 0;
+        permission.authorizedCaller = nonMatchingCaller; // Does NOT match account sender
+
+        // Compute leaf using the on-chain helper so authorizedCaller is baked in.
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
+        vm.prank(address(account));
+        gate.setPolicyRoot(address(account), leaf);
+
+        bytes32 userOpHash = keccak256("test");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+
+        // sender == address(account) != nonMatchingCaller → must revert
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ClankerGate4337.UnauthorizedCallerForPermission.selector,
+                address(account),
+                nonMatchingCaller
+            )
+        );
+        gate.validateUserOp(_buildUserOp(address(account), hex"12345678"), userOpHash, guardData);
+    }
+
+    /// @notice H-2: A permission with authorizedCaller == address(0) must allow any sender
+    /// (i.e., validation proceeds as normal).
+    function test_authorizedCaller_zeroAllowsAny() public {
+        Permission memory permission;
+        permission.target = address(0);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+        permission.validAfter = 0;
+        permission.validUntil = 0;
+        permission.chainId = 0;
+        permission.singleUse = false;
+        permission.maxValue = 0;
+        permission.authorizedCaller = address(0); // No restriction
+
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
+        vm.prank(address(account));
+        gate.setPolicyRoot(address(account), leaf);
+
+        bytes32 userOpHash = keccak256("test");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+
+        uint256 result = gate.validateUserOp(_buildUserOp(address(account), hex"12345678"), userOpHash, guardData);
+        assertEq(result, 0, "zero authorizedCaller must allow any sender");
+    }
+}

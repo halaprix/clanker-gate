@@ -722,3 +722,69 @@ contract ComputePermissionHashTests is ClankerGate7579Test {
         assertTrue(hash1 != hash3);
     }
 }
+
+// ============================================================
+//              AUTHORIZED CALLER ENFORCEMENT TESTS (H-2)
+// ============================================================
+
+contract AuthorizedCallerTests7579 is ClankerGate7579Test {
+    function setUp() public override {
+        super.setUp();
+        vm.prank(address(account));
+        account.installModule(
+            MODULE_TYPE_VALIDATOR,
+            address(gate),
+            abi.encode(owner, bytes32(0), address(0))
+        );
+    }
+
+    /// @notice H-2: A permission whose authorizedCaller does NOT match msg.sender (the account)
+    /// must revert UnauthorizedCallerForPermission.
+    function test_authorizedCaller_enforced() public {
+        address nonMatchingCaller = address(0xDEAD5678);
+
+        Permission memory permission = _createBasicPermission();
+        permission.authorizedCaller = nonMatchingCaller; // Does NOT match msg.sender (== account)
+
+        // Compute leaf using the on-chain helper so authorizedCaller is baked in.
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
+        vm.prank(owner);
+        gate.setPolicyRoot(address(account), leaf);
+
+        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
+        bytes32 userOpHash = keccak256("test");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+
+        // msg.sender inside validateUserOp is address(account) != nonMatchingCaller → must revert
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ClankerGate7579.UnauthorizedCallerForPermission.selector,
+                address(account),
+                nonMatchingCaller
+            )
+        );
+        account.callValidate(address(gate), userOp, userOpHash, guardData);
+    }
+
+    /// @notice H-2: A permission with authorizedCaller == address(0) must allow any caller
+    /// (i.e., validation proceeds as normal).
+    function test_authorizedCaller_zeroAllowsAny() public {
+        Permission memory permission = _createBasicPermission();
+        permission.authorizedCaller = address(0); // No restriction
+
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
+        vm.prank(owner);
+        gate.setPolicyRoot(address(account), leaf);
+
+        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
+        bytes32 userOpHash = keccak256("test");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        assertEq(result, 0, "zero authorizedCaller must allow any caller");
+    }
+}

@@ -81,6 +81,7 @@ contract ClankerGate4337 {
     error DirectCallRequiresTargetZero(address target);
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
     error UnauthorizedCaller();
+    error UnauthorizedCallerForPermission(address actual, address expected);
 
     /// @notice Sets the Merkle root for an account's policy tree
     /// @param account The account address to set the policy root for
@@ -176,6 +177,15 @@ contract ClankerGate4337 {
             } else {
                 revert ChainIdMismatch(permission.chainId, block.chainid);
             }
+        }
+
+        // H-2: Enforce permission.authorizedCaller (bound to the userOp sender).
+        // Note: In the ERC-4337 EntryPoint flow there is no separate on-chain submitter identity
+        // distinct from the account itself, so we bind to `sender` (the smart account). This is a
+        // redundant-but-honest safety pin — it ensures the field is honoured rather than silently
+        // ignored, while being honest that Safe's executor-binding semantics don't apply here.
+        if (permission.authorizedCaller != address(0) && permission.authorizedCaller != sender) {
+            revert UnauthorizedCallerForPermission(sender, permission.authorizedCaller);
         }
 
         // Decode execute() wrapper — supports both execute(address,uint256,bytes) and ERC-7579 single-call
