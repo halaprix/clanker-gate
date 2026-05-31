@@ -179,8 +179,8 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        address wrongSigner = vm.addr(wrongKey);
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.UnauthorizedSigner.selector, owner, wrongSigner));
+        // A7: SignatureCheckerLib returns bool; the second arg is now address(0) (no recovered signer)
+        vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.UnauthorizedSigner.selector, owner, address(0)));
         gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
@@ -697,5 +697,88 @@ contract AuthorizedCallerTests4337 is ClankerGateTest {
 
         uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
         assertEq(result, 0, "zero authorizedCaller must allow any sender");
+    }
+}
+
+// ============================================================
+//                    EIP-1271 OWNER TESTS (M-4)
+// ============================================================
+
+/// @notice Minimal EIP-1271 wallet that accepts exactly one known (hash, sig) pair.
+contract EIP1271OwnerWallet {
+    address public immutable signer;
+    bytes4 constant MAGIC = 0x1626ba7e;
+
+    constructor(address _signer) {
+        signer = _signer;
+    }
+
+    /// @notice Recover the ECDSA signer and return magic value if it matches.
+    function isValidSignature(bytes32 hash, bytes memory sig) external view returns (bytes4) {
+        // Minimal ECDSA recovery without library dependency
+        if (sig.length != 65) return bytes4(0xffffffff);
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            r := mload(add(sig, 0x20))
+            s := mload(add(sig, 0x40))
+            v := byte(0, mload(add(sig, 0x60)))
+        }
+        address recovered = ecrecover(hash, v, r, s);
+        return (recovered == signer) ? MAGIC : bytes4(0xffffffff);
+    }
+}
+
+/// @notice An account whose owner() returns the EIP-1271 wallet contract address.
+contract EIP1271OwnerAccount is IAccount {
+    address public owner; // The 1271 wallet contract
+
+    constructor(address _wallet) {
+        owner = _wallet;
+    }
+
+    function validateUserOp(bytes calldata, bytes32, uint256) external pure returns (uint256) {
+        return 0;
+    }
+}
+
+contract EIP1271OwnerTests is ClankerGateTest {
+    /// @notice M-4: Account owner is a contract wallet (EIP-1271); gate must accept it.
+    function test_eip1271Owner_4337() public {
+        // Deploy a 1271 wallet that signs with ownerKey
+        EIP1271OwnerWallet wallet = new EIP1271OwnerWallet(owner);
+
+        // Deploy an account whose owner() returns the wallet (a contract)
+        EIP1271OwnerAccount eip1271Account = new EIP1271OwnerAccount(address(wallet));
+
+        // Set up a permission and compute its leaf
+        Permission memory permission;
+        permission.target = address(0);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+        permission.validAfter = 0;
+        permission.validUntil = 0;
+        permission.chainId = 0;
+
+        bytes32 leaf = gate.computePermissionHash(address(eip1271Account), permission, 1);
+        bytes32[] memory proof = new bytes32[](0);
+
+        vm.prank(address(eip1271Account));
+        gate.setPolicyRoot(address(eip1271Account), leaf);
+
+        // Sign the userOpHash with ownerKey — the 1271 wallet will recover this
+        bytes32 userOpHash = keccak256("eip1271test");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        bytes memory guardData = abi.encode(proof, permission, signature);
+
+        // The gate calls isValidSignature on the wallet (contract owner). Should pass.
+        uint256 result = gate.validateUserOp(
+            _packUserOp(address(eip1271Account), hex"12345678", guardData),
+            userOpHash
+        );
+        assertEq(result, 0, "EIP-1271 contract owner should validate successfully");
     }
 }

@@ -346,7 +346,6 @@ contract ClankerGateInvariantTest is Test {
 
         // Sign with wrong key
         uint256 wrongKey = 0x12345678;
-        address wrongSigner = vm.addr(wrongKey);
 
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, userOpHash);
@@ -354,10 +353,11 @@ contract ClankerGateInvariantTest is Test {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
+        // A7: SignatureCheckerLib returns bool; second arg is address(0)
         vm.expectRevert(abi.encodeWithSelector(
             ClankerGate4337.UnauthorizedSigner.selector,
             owner,
-            wrongSigner
+            address(0)
         ));
         gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }

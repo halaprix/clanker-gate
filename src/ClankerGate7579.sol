@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {ClankerGateCore, Permission, ParamRule, DOMAIN_SEPARATOR_TYPEHASH, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH} from "./ClankerGateCore.sol";
 import {IERC7579Account, MODULE_TYPE_VALIDATOR} from "./interfaces/IERC7579.sol";
-import {IERC1271} from "./interfaces/IERC1271.sol";
 import {PackedUserOperation} from "./interfaces/IERC4337.sol";
 
 /**
@@ -48,8 +47,6 @@ import {PackedUserOperation} from "./interfaces/IERC4337.sol";
  *       from userOp.callData instead of using try/catch self-decode machinery
  */
 contract ClankerGate7579 {
-    using ECDSA for bytes32;
-
     bytes32 private immutable DOMAIN_SEPARATOR;
 
     constructor() {
@@ -353,23 +350,13 @@ contract ClankerGate7579 {
             return _packValidationData(true, 0, 0);
         }
 
-        // CG-07: Validate signature — support both ECDSA (EOA) and EIP-1271 (smart contract wallets)
-        address sigValidator = accountConfigs[msg.sender].signatureValidator;
-        bool sigValid;
-
-        if (sigValidator != address(0) && sigValidator.code.length > 0) {
-            // Smart contract wallet: use EIP-1271 isValidSignature
-            sigValid = IERC1271(sigValidator).isValidSignature(userOpHash, ownerSig)
-                == IERC1271.isValidSignature.selector;
-        } else {
-            // EOA: use ECDSA recovery
-            address expectedSigner = _getExpectedSigner(msg.sender);
-            address signer = userOpHash.recover(ownerSig);
-            sigValid = signer == expectedSigner;
-        }
-
-        if (!sigValid) {
-            revert UnauthorizedSigner(_getExpectedSigner(msg.sender), address(0));
+        // CG-07 / M-4: Unified signature check via SignatureCheckerLib.
+        // Routes to EIP-1271 when expectedSigner is a contract, ECDSA when it's an EOA.
+        address expectedSigner = config.signatureValidator != address(0)
+            ? config.signatureValidator
+            : _getExpectedSigner(msg.sender);
+        if (!SignatureCheckerLib.isValidSignatureNow(expectedSigner, userOpHash, ownerSig)) {
+            revert UnauthorizedSigner(expectedSigner, address(0));
         }
 
         // Check singleUse permission - use account-scoped hash to prevent collision attacks
@@ -408,19 +395,11 @@ contract ClankerGate7579 {
             return bytes4(0xffffffff);
         }
 
-        address sigValidator = config.signatureValidator;
-        bool sigValid;
-
-        if (sigValidator != address(0) && sigValidator.code.length > 0) {
-            // Smart contract signer path: delegate to the configured EIP-1271 validator
-            sigValid = IERC1271(sigValidator).isValidSignature(hash, signature)
-                == IERC1271.isValidSignature.selector;
-        } else {
-            // EOA path: ECDSA recovery against the expected signer
-            address expectedSigner = _getExpectedSigner(msg.sender);
-            address signer = hash.recover(signature);
-            sigValid = signer == expectedSigner;
-        }
+        // M-4: Unified check via SignatureCheckerLib (handles ECDSA + EIP-1271 + EIP-2098)
+        address expectedSigner = config.signatureValidator != address(0)
+            ? config.signatureValidator
+            : _getExpectedSigner(msg.sender);
+        bool sigValid = SignatureCheckerLib.isValidSignatureNow(expectedSigner, hash, signature);
 
         return sigValid ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }

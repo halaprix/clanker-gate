@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
 import {PackedUserOperation, IEntryPoint, IAccount} from "./interfaces/IERC4337.sol";
 import {ClankerGateCore, Permission, ParamRule, DOMAIN_SEPARATOR_TYPEHASH, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH, ERR_RULE_VIOLATION} from "./ClankerGateCore.sol";
 
@@ -29,8 +29,6 @@ import {ClankerGateCore, Permission, ParamRule, DOMAIN_SEPARATOR_TYPEHASH, ERR_I
 ///     - Non-execute() calldata must have permission.target == address(0) or match the implicit target
 ///     - This contract assumes accounts implement `owner()` per our IAccount interface
 contract ClankerGate4337 {
-    using ECDSA for bytes32;
-
     bytes32 private immutable DOMAIN_SEPARATOR;
 
     constructor() {
@@ -210,11 +208,10 @@ contract ClankerGate4337 {
             return _packValidationData(true, 0, 0);
         }
 
-        // Validate signature
-        address signer = userOpHash.recover(ownerSig);
-        address owner = _getOwner(sender);
-        if (signer != owner) {
-            revert UnauthorizedSigner(owner, signer);
+        // Validate signature — supports ECDSA (EOA) and EIP-1271 (contract owners) via SignatureCheckerLib (M-4)
+        address expectedSigner = _getOwner(sender);
+        if (!SignatureCheckerLib.isValidSignatureNow(expectedSigner, userOpHash, ownerSig)) {
+            revert UnauthorizedSigner(expectedSigner, address(0));
         }
 
         // Check singleUse permission - use account-scoped hash to prevent collision attacks

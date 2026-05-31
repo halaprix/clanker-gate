@@ -873,3 +873,111 @@ contract AuthorizedCallerTests7579 is ClankerGate7579Test {
         assertEq(result, 0, "zero authorizedCaller must allow any caller");
     }
 }
+
+// ============================================================
+//                    EIP-1271 OWNER TESTS (M-4)
+// ============================================================
+
+/// @notice Minimal EIP-1271 wallet that accepts signatures valid under a known EOA key.
+contract EIP1271Wallet7579 {
+    address public immutable signer;
+    bytes4 constant MAGIC = 0x1626ba7e;
+
+    constructor(address _signer) {
+        signer = _signer;
+    }
+
+    function isValidSignature(bytes32 hash, bytes memory sig) external view returns (bytes4) {
+        if (sig.length != 65) return bytes4(0xffffffff);
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            r := mload(add(sig, 0x20))
+            s := mload(add(sig, 0x40))
+            v := byte(0, mload(add(sig, 0x60)))
+        }
+        address recovered = ecrecover(hash, v, r, s);
+        return (recovered == signer) ? MAGIC : bytes4(0xffffffff);
+    }
+}
+
+contract EIP1271OwnerTests7579 is ClankerGate7579Test {
+    /// @notice M-4: signatureValidator is a contract (EIP-1271 wallet); gate routes to isValidSignature.
+    function test_eip1271Owner_7579() public {
+        // Deploy a 1271 wallet that signs with ownerKey
+        EIP1271Wallet7579 wallet = new EIP1271Wallet7579(owner);
+
+        // Install module with the 1271 wallet as the signatureValidator
+        vm.prank(address(account));
+        account.installModule(
+            MODULE_TYPE_VALIDATOR,
+            address(gate),
+            abi.encode(owner, bytes32(0), address(wallet))
+        );
+
+        Permission memory permission = _createBasicPermission();
+        bytes32 leaf = gate.computePermissionHashWithAccount(
+            address(account),
+            permission.target,
+            permission.selector,
+            permission.rules,
+            permission.validAfter,
+            permission.validUntil,
+            permission.chainId,
+            permission.singleUse,
+            permission.maxValue
+        );
+
+        vm.prank(owner);
+        gate.setPolicyRoot(address(account), leaf);
+
+        bytes32 userOpHash = keccak256("eip1271test7579");
+        // Sign with ownerKey — wallet.isValidSignature will recover this and return magic
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
+
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
+        assertEq(result, 0, "EIP-1271 contract signatureValidator should validate successfully");
+    }
+
+    /// @notice M-4: signatureValidator is a contract but returns invalid magic — gate reverts.
+    function test_eip1271Owner_7579_badSig_reverts() public {
+        EIP1271Wallet7579 wallet = new EIP1271Wallet7579(owner);
+
+        vm.prank(address(account));
+        account.installModule(
+            MODULE_TYPE_VALIDATOR,
+            address(gate),
+            abi.encode(owner, bytes32(0), address(wallet))
+        );
+
+        Permission memory permission = _createBasicPermission();
+        bytes32 leaf = gate.computePermissionHashWithAccount(
+            address(account),
+            permission.target,
+            permission.selector,
+            permission.rules,
+            permission.validAfter,
+            permission.validUntil,
+            permission.chainId,
+            permission.singleUse,
+            permission.maxValue
+        );
+
+        vm.prank(owner);
+        gate.setPolicyRoot(address(account), leaf);
+
+        uint256 wrongKey = 0x9999;
+        bytes32 userOpHash = keccak256("eip1271test7579bad");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
+
+        vm.expectRevert(abi.encodeWithSelector(ClankerGate7579.UnauthorizedSigner.selector, address(wallet), address(0)));
+        account.callValidate(address(gate), userOp, userOpHash);
+    }
+}
