@@ -1010,7 +1010,7 @@ contract ComputePermissionHashTests is ClankerGateSafeTest {
         ParamRule[] memory rules = new ParamRule[](1);
         rules[0] = ParamRule(0, 0, bytes32(uint256(100)), new bytes32[](0));
 
-        bytes32 hash = gate.computePermissionHash(
+        bytes32 hash = gate.computePermissionInnerHash(
             address(0x1111),
             0x12345678,
             rules,
@@ -1024,7 +1024,7 @@ contract ComputePermissionHashTests is ClankerGateSafeTest {
         assertTrue(hash != bytes32(0));
     }
 
-function test_ComputePermissionHash_MatchesLibrary() public {
+    function test_ComputePermissionHash_MatchesLibrary() public {
         Permission memory permission;
         permission.target = address(0x1111);
         permission.selector = 0x12345678;
@@ -1036,7 +1036,7 @@ function test_ComputePermissionHash_MatchesLibrary() public {
         permission.singleUse = false;
         permission.maxValue = 0;
 
-        bytes32 hash1 = gate.computePermissionHash(
+        bytes32 hash1 = gate.computePermissionInnerHash(
             permission.target,
             permission.selector,
             permission.rules,
@@ -1047,7 +1047,7 @@ function test_ComputePermissionHash_MatchesLibrary() public {
             permission.maxValue
         );
 
-        bytes32 hash2 = gate.computePermissionHash(
+        bytes32 hash2 = gate.computePermissionInnerHash(
             permission.target,
             permission.selector,
             permission.rules,

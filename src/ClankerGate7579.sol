@@ -534,9 +534,13 @@ contract ClankerGate7579 {
     }
 
     /**
-     * @notice Compute permission hash for off-chain Merkle tree construction
+     * @notice Computes the unscoped permission hash for off-chain use.
+     * @dev Returns the intermediate hash BEFORE account/nonce scoping.
+     *      This is NOT a Merkle leaf — it is missing account and nonce binding.
+     *      Use the account-scoped `computePermissionHash(account, permission, nonce)`
+     *      overload to obtain the actual Merkle leaf.
      */
-    function computePermissionHash(
+    function computePermissionInnerHash(
         address target,
         bytes4 selector,
         ParamRule[] calldata rules,

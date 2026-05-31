@@ -2,15 +2,16 @@
 pragma solidity 0.8.35;
 
 import {Test} from "forge-std/Test.sol";
-import {ClankerGateCore, ParamRule, Permission, OP_EQ, OP_GT, OP_LT, OP_GTE, OP_LTE, OP_IN} from "../src/ClankerGateCore.sol";
+import {ClankerGateCore, ParamRule, Permission, OP_EQ, OP_GT, OP_LT, OP_GTE, OP_LTE, OP_IN, DOMAIN_SEPARATOR_TYPEHASH} from "../src/ClankerGateCore.sol";
+import {ClankerGate4337} from "../src/ClankerGate4337.sol";
 
 contract ClankerGateCoreWrapper {
-    function validateCallDataWrapped(bytes calldata callData, Permission memory permission) 
-        external 
-        pure 
-        returns (bool valid, uint256 ruleIndex) 
+    function validateCallDataWrapped(bytes calldata callData, Permission memory permission)
+        external
+        pure
+        returns (bool valid, uint8 errorCode, uint256 ruleIndex)
     {
-        return ClankerGateCore.validateCallData(callData, permission);
+        return ClankerGateCore.validateCallDataExtended(callData, permission);
     }
 
     function hashPermissionWrapped(Permission memory permission) external view returns (bytes32) {
@@ -199,7 +200,7 @@ contract ValidateCallDataTests is Test {
 
         bytes memory callData = hex"123456780000000000000000000000000000000000000000000000000000000000000001";
 
-        (bool valid, ) = ClankerGateCore.validateCallDataMemory(callData, permission);
+        (bool valid, , ) = ClankerGateCore.validateCallDataMemoryExtended(callData, permission);
         assertTrue(valid);
     }
 
@@ -211,7 +212,7 @@ contract ValidateCallDataTests is Test {
 
         bytes memory callData = hex"123456780000000000000000000000000000000000000000000000000000000000000001";
 
-        (bool valid, ) = ClankerGateCore.validateCallDataMemory(callData, permission);
+        (bool valid, , ) = ClankerGateCore.validateCallDataMemoryExtended(callData, permission);
         assertFalse(valid);
     }
 
@@ -224,7 +225,7 @@ contract ValidateCallDataTests is Test {
 
         bytes memory callData = hex"12345678000000000000000000000000000000000000000000000000000000000000007b";
 
-        (bool valid, ) = ClankerGateCore.validateCallDataMemory(callData, permission);
+        (bool valid, , ) = ClankerGateCore.validateCallDataMemoryExtended(callData, permission);
         assertTrue(valid);
     }
 
@@ -233,7 +234,7 @@ contract ValidateCallDataTests is Test {
         permission.target = address(0x1111);
         permission.selector = 0x12345678;
         permission.rules = new ParamRule[](1);
-        
+
         bytes32[] memory allowedValues = new bytes32[](3);
         allowedValues[0] = bytes32(uint256(100));
         allowedValues[1] = bytes32(uint256(200));
@@ -242,7 +243,7 @@ contract ValidateCallDataTests is Test {
 
         bytes memory callData = hex"1234567800000000000000000000000000000000000000000000000000000000000000c8";
 
-        (bool valid, ) = ClankerGateCore.validateCallDataMemory(callData, permission);
+        (bool valid, , ) = ClankerGateCore.validateCallDataMemoryExtended(callData, permission);
         assertTrue(valid);
     }
 
@@ -285,7 +286,7 @@ contract ValidateCallDataTests is Test {
             mstore(add(add(callData, 32), 4), 0xAAAA)
         }
 
-        (bool valid, ) = ClankerGateCore.validateCallDataMemory(callData, permission);
+        (bool valid, , ) = ClankerGateCore.validateCallDataMemoryExtended(callData, permission);
         assertTrue(valid);
     }
 }
@@ -362,11 +363,94 @@ contract CG15_BitShiftTest is Test {
         uint48 validUntil = type(uint48).max;
         uint48 validAfter = type(uint48).max;
         bool sigFailed = true;
-        
+
         uint256 packed = (uint256(validUntil) << 160) | (uint256(validAfter) << 208) | (sigFailed ? 1 : 0);
-        
+
         assertEq(uint48(packed >> 160), validUntil, "validUntil max");
         assertEq(uint48(packed >> 208), validAfter, "validAfter max");
         assertEq(packed & 1, 1, "sigFailed");
+    }
+}
+
+// ============================================================
+// CANONICAL LEAF FORMULA INVARIANT GUARD
+// Independently re-derives the Merkle leaf and asserts equality
+// with the contract's computation. Any future change to field
+// order, double-hashing, or per-rule hashing fails loudly.
+// ============================================================
+contract LeafInvariantTest is Test {
+    ClankerGate4337 g;
+
+    function setUp() public {
+        g = new ClankerGate4337();
+    }
+
+    function test_canonicalLeaf_formulaLocked() public {
+        // Fixed non-trivial permission: OP_IN rule with non-empty values,
+        // nonzero maxValue, authorizedCaller, validAfter, validUntil, chainId, singleUse=true.
+        bytes32[] memory inValues = new bytes32[](3);
+        inValues[0] = bytes32(uint256(0xAA));
+        inValues[1] = bytes32(uint256(0xBB));
+        inValues[2] = bytes32(uint256(0xCC));
+
+        Permission memory p;
+        p.target   = address(0x1234567890123456789012345678901234567890);
+        p.selector = 0xabcdef01;
+        p.rules    = new ParamRule[](1);
+        p.rules[0] = ParamRule(32, OP_IN, bytes32(0), inValues);
+        p.validAfter  = uint48(1_000_000);
+        p.validUntil  = uint48(9_999_999);
+        p.chainId     = 31337; // default Foundry chainId
+        p.singleUse   = true;
+        p.maxValue    = 1 ether;
+        p.authorizedCaller = address(0xDEAD);
+
+        address account = address(0xBEEF);
+        uint256 nonce   = 7;
+
+        // ---- Independently re-derive the leaf ----
+
+        // 1. Domain separator (same formula as all three gate contracts)
+        bytes32 domainSep = keccak256(abi.encode(
+            DOMAIN_SEPARATOR_TYPEHASH,
+            keccak256("ClankerGate"),
+            keccak256("1"),
+            block.chainid,
+            address(g)
+        ));
+
+        // 2. Per-rule hashes
+        bytes32[] memory ruleHashes = new bytes32[](p.rules.length);
+        for (uint256 i; i < p.rules.length; ++i) {
+            ParamRule memory r = p.rules[i];
+            ruleHashes[i] = keccak256(abi.encode(r.offset, r.op, r.value, r.values));
+        }
+
+        // 3. Encoded permission (field order must match hashPermission in ClankerGateCore)
+        bytes32 enc = keccak256(abi.encode(
+            p.target,
+            p.selector,
+            ruleHashes,
+            p.validAfter,
+            p.validUntil,
+            p.chainId,
+            p.singleUse,
+            p.maxValue,
+            p.authorizedCaller
+        ));
+
+        // 4. Permission hash = double-keccak with domain separator
+        bytes32 permHash = keccak256(abi.encode(domainSep, enc));
+
+        // 5. Leaf = account-scoped binding
+        bytes32 expectedLeaf = keccak256(abi.encode(account, permHash, nonce));
+
+        // ---- Assert the contract computes the same leaf ----
+        assertEq(g.computePermissionHash(account, p, nonce), expectedLeaf, "leaf mismatch");
+
+        // Emit values for SDK cross-check vectors
+        emit log_named_bytes32("leaf",            expectedLeaf);
+        emit log_named_bytes32("domainSeparator", domainSep);
+        emit log_named_bytes32("permHash",        permHash);
     }
 }

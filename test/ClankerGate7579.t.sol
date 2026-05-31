@@ -828,7 +828,7 @@ contract ComputePermissionHashTests is ClankerGate7579Test {
         rules[0] = ParamRule(0, 0, bytes32(uint256(100)), new bytes32[](0));
 
         // Correct arg order: (target, selector, rules, validAfter, validUntil, chainId, singleUse, maxValue)
-        bytes32 hash1 = gate.computePermissionHash(
+        bytes32 hash1 = gate.computePermissionInnerHash(
             address(0x1111),
             0x12345678,
             rules,
@@ -840,7 +840,7 @@ contract ComputePermissionHashTests is ClankerGate7579Test {
         );
 
         // Verify consistency - calling with same params gives same hash
-        bytes32 hash2 = gate.computePermissionHash(
+        bytes32 hash2 = gate.computePermissionInnerHash(
             address(0x1111),
             0x12345678,
             rules,
@@ -854,7 +854,7 @@ contract ComputePermissionHashTests is ClankerGate7579Test {
         assertEq(hash1, hash2);
 
         // Verify different params give different hash — pass chainId=1 (correct position)
-        bytes32 hash3 = gate.computePermissionHash(
+        bytes32 hash3 = gate.computePermissionInnerHash(
             address(0x1111),
             0x12345678,
             rules,

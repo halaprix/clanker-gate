@@ -145,52 +145,6 @@ library ClankerGateCore {
         return (true, 0, 0);
     }
 
-    /// @notice Validates calldata against permission rules (calldata version)
-    /// @dev Kept for backwards compatibility. Use validateCallDataExtended for better error info.
-    function validateCallData(bytes calldata callData, Permission memory permission) 
-        internal 
-        pure 
-        returns (bool valid, uint256 ruleIndex) 
-    {
-        if (callData.length < 4) {
-            return (false, 0);
-        }
-
-        bytes4 selector = bytes4(callData[0:4]);
-        if (selector != permission.selector) {
-            return (false, 0);
-        }
-
-        // Check MAX_RULES limit (gas griefing protection)
-        if (permission.rules.length > MAX_RULES) {
-            revert TooManyRules(permission.rules.length, MAX_RULES);
-        }
-
-        for (uint256 i; i < permission.rules.length; ++i) {
-            ParamRule memory rule = permission.rules[i];
-            uint256 absoluteOffset = 4 + rule.offset;
-
-            if (absoluteOffset + 32 > callData.length) {
-                revert CalldataOutOfRange(absoluteOffset);
-            }
-
-            bytes32 actualValue;
-            assembly {
-                let dataOffset := add(callData.offset, absoluteOffset)
-                actualValue := calldataload(dataOffset)
-            }
-
-            if (!compareRule(rule.op, actualValue, rule.value, rule.values)) {
-                if (rule.op == OP_IN) {
-                    revert ValueNotInSet(i, actualValue, rule.values);
-                }
-                revert RuleViolation(i, rule.op, rule.value, actualValue);
-            }
-        }
-
-        return (true, 0);
-    }
-
     /// @notice Validates calldata against permission rules with extended error info (memory version)
     /// @param callData The calldata to validate
     /// @param permission The permission to validate against
@@ -241,54 +195,6 @@ library ClankerGateCore {
         }
 
         return (true, 0, 0);
-    }
-
-    /// @notice Validates calldata against permission rules (memory version)
-    function validateCallDataMemory(bytes memory callData, Permission memory permission) 
-        internal 
-        pure 
-        returns (bool valid, uint256 ruleIndex) 
-    {
-        if (callData.length < 4) {
-            return (false, 0);
-        }
-
-        bytes4 selector;
-        assembly {
-            selector := mload(add(callData, 32))
-        }
-        
-        if (selector != permission.selector) {
-            return (false, 0);
-        }
-
-        // Check MAX_RULES limit (gas griefing protection)
-        if (permission.rules.length > MAX_RULES) {
-            revert TooManyRules(permission.rules.length, MAX_RULES);
-        }
-
-        for (uint256 i; i < permission.rules.length; ++i) {
-            ParamRule memory rule = permission.rules[i];
-            uint256 absoluteOffset = 4 + rule.offset;
-
-            if (absoluteOffset + 32 > callData.length) {
-                revert CalldataOutOfRange(absoluteOffset);
-            }
-
-            bytes32 actualValue;
-            assembly {
-                actualValue := mload(add(add(callData, 32), absoluteOffset))
-            }
-
-            if (!compareRule(rule.op, actualValue, rule.value, rule.values)) {
-                if (rule.op == OP_IN) {
-                    revert ValueNotInSet(i, actualValue, rule.values);
-                }
-                revert RuleViolation(i, rule.op, rule.value, actualValue);
-            }
-        }
-
-        return (true, 0);
     }
 
     /// @notice Compares a value using the specified operator
@@ -405,53 +311,6 @@ library ClankerGateCore {
     ) internal view returns (bool) {
         bytes32 leaf = hashPermissionWithAccount(account, permission, nonce);
         return MerkleProof.verify(proof, root, leaf);
-    }
-
-    /// @notice Decodes execute() wrapper (calldata version)
-    /// @dev Returns (address(0), 0, callData.length, 0) for non-execute calls
-    /// @param callData The calldata to decode
-    /// @return target The target address from execute() or address(0) for direct calls
-    /// @return innerDataOffset Offset to inner data (0 for direct calls)
-    /// @return innerDataLength Length of inner data
-    /// @return value The ETH value from execute() or 0 for direct calls
-    function decodeExecuteCall(bytes calldata callData)
-        internal
-        pure
-        returns (address target, uint256 innerDataOffset, uint256 innerDataLength, uint256 value)
-    {
-        if (callData.length < 4) {
-            return (address(0), 0, 0, 0);
-        }
-
-        bytes4 selector = bytes4(callData[0:4]);
-
-        if (selector == EXECUTE_SELECTOR && callData.length >= 132) {
-            target = address(bytes20(callData[16:36]));
-            value = uint256(bytes32(callData[36:68]));
-            uint256 dataOffset = uint256(bytes32(callData[68:100]));
-            // CG-12: Read dataLength from dynamic position based on dataOffset pointer,
-            // not hardcoded offset. This prevents ABI layout bypass attacks.
-            // ABI offsets are measured from byte 4 (after the selector), so the length
-            // word is at 4+dataOffset, not 68+dataOffset.
-            uint256 dataLength = uint256(bytes32(callData[4 + dataOffset:4 + dataOffset + 32]));
-            innerDataOffset = 4 + dataOffset + 32;
-            innerDataLength = dataLength;
-            
-            // Bounds check: ensure inner data is within calldata
-            if (innerDataOffset + innerDataLength > callData.length) {
-                revert InvalidExecuteEncoding();
-            }
-            
-            // Validate address zero-padding (security check)
-            if (bytes12(callData[4:16]) != bytes12(0)) {
-                revert InvalidAddressPadding();
-            }
-        } else {
-            target = address(0);
-            innerDataOffset = 0;
-            innerDataLength = callData.length;
-            value = 0;
-        }
     }
 
     /// @notice Decodes execute() wrapper (memory version)
