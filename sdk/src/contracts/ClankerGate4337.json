@@ -1,5 +1,10 @@
 [
   {
+    "type": "constructor",
+    "inputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "function",
     "name": "computePermissionHash",
     "inputs": [
@@ -22,6 +27,36 @@
             "name": "selector",
             "type": "bytes4",
             "internalType": "bytes4"
+          },
+          {
+            "name": "validAfter",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "validUntil",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "singleUse",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "chainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "authorizedCaller",
+            "type": "address",
+            "internalType": "address"
           },
           {
             "name": "rules",
@@ -49,117 +84,11 @@
                 "internalType": "bytes32[]"
               }
             ]
-          },
-          {
-            "name": "validAfter",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "validUntil",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "chainId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "singleUse",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "maxValue",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "authorizedCaller",
-            "type": "address",
-            "internalType": "address"
           }
         ]
       },
       {
         "name": "nonce",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "computePermissionHash",
-    "inputs": [
-      {
-        "name": "target",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "selector",
-        "type": "bytes4",
-        "internalType": "bytes4"
-      },
-      {
-        "name": "rules",
-        "type": "tuple[]",
-        "internalType": "struct ParamRule[]",
-        "components": [
-          {
-            "name": "offset",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "op",
-            "type": "uint8",
-            "internalType": "uint8"
-          },
-          {
-            "name": "value",
-            "type": "bytes32",
-            "internalType": "bytes32"
-          },
-          {
-            "name": "values",
-            "type": "bytes32[]",
-            "internalType": "bytes32[]"
-          }
-        ]
-      },
-      {
-        "name": "validAfter",
-        "type": "uint48",
-        "internalType": "uint48"
-      },
-      {
-        "name": "validUntil",
-        "type": "uint48",
-        "internalType": "uint48"
-      },
-      {
-        "name": "chainId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "singleUse",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "maxValue",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -256,6 +185,82 @@
   },
   {
     "type": "function",
+    "name": "computePermissionInnerHash",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "selector",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      },
+      {
+        "name": "rules",
+        "type": "tuple[]",
+        "internalType": "struct ParamRule[]",
+        "components": [
+          {
+            "name": "offset",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "op",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "value",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "values",
+            "type": "bytes32[]",
+            "internalType": "bytes32[]"
+          }
+        ]
+      },
+      {
+        "name": "validAfter",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "validUntil",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "singleUse",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "maxValue",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "nonces",
     "inputs": [
       {
@@ -269,6 +274,25 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "policyAdmin",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -291,6 +315,24 @@
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setPolicyAdmin",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "admin",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -335,6 +377,36 @@
             "internalType": "bytes4"
           },
           {
+            "name": "validAfter",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "validUntil",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "singleUse",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "chainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "authorizedCaller",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "rules",
             "type": "tuple[]",
             "internalType": "struct ParamRule[]",
@@ -360,43 +432,8 @@
                 "internalType": "bytes32[]"
               }
             ]
-          },
-          {
-            "name": "validAfter",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "validUntil",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "chainId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "singleUse",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "maxValue",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "authorizedCaller",
-            "type": "address",
-            "internalType": "address"
           }
         ]
-      },
-      {
-        "name": "nonce",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -432,18 +469,60 @@
     "inputs": [
       {
         "name": "userOp",
-        "type": "bytes",
-        "internalType": "bytes"
+        "type": "tuple",
+        "internalType": "struct PackedUserOperation",
+        "components": [
+          {
+            "name": "sender",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "nonce",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "initCode",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "callData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "accountGasLimits",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "preVerificationGas",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "gasFees",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "paymasterAndData",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "signature",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
       },
       {
         "name": "userOpHash",
         "type": "bytes32",
         "internalType": "bytes32"
-      },
-      {
-        "name": "guardData",
-        "type": "bytes",
-        "internalType": "bytes"
       }
     ],
     "outputs": [
@@ -454,6 +533,25 @@
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "PolicyAdminSet",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "admin",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -512,6 +610,17 @@
   },
   {
     "type": "error",
+    "name": "CallDataValidationFailed",
+    "inputs": [
+      {
+        "name": "errorCode",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CalldataOutOfRange",
     "inputs": [
       {
@@ -550,39 +659,17 @@
   },
   {
     "type": "error",
-    "name": "ECDSAInvalidSignature",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "ECDSAInvalidSignatureLength",
-    "inputs": [
-      {
-        "name": "length",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "ECDSAInvalidSignatureS",
-    "inputs": [
-      {
-        "name": "s",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "InvalidAddressPadding",
     "inputs": []
   },
   {
     "type": "error",
     "name": "InvalidExecuteEncoding",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidExecutionCalldata",
     "inputs": []
   },
   {
@@ -730,6 +817,22 @@
   },
   {
     "type": "error",
+    "name": "UnauthorizedCallerForPermission",
+    "inputs": [
+      {
+        "name": "actual",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "expected",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "UnauthorizedSigner",
     "inputs": [
       {
@@ -741,6 +844,28 @@
         "name": "actual",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedCallType",
+    "inputs": [
+      {
+        "name": "callType",
+        "type": "bytes1",
+        "internalType": "bytes1"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedExecType",
+    "inputs": [
+      {
+        "name": "execType",
+        "type": "bytes1",
+        "internalType": "bytes1"
       }
     ]
   },

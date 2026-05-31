@@ -1,5 +1,10 @@
 [
   {
+    "type": "constructor",
+    "inputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "function",
     "name": "authorizations",
     "inputs": [
@@ -22,8 +27,8 @@
       },
       {
         "name": "whitelistVersion",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint248",
+        "internalType": "uint248"
       },
       {
         "name": "enabled",
@@ -76,6 +81,36 @@
             "internalType": "bytes4"
           },
           {
+            "name": "validAfter",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "validUntil",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "singleUse",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "chainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "authorizedCaller",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "rules",
             "type": "tuple[]",
             "internalType": "struct ParamRule[]",
@@ -101,36 +136,6 @@
                 "internalType": "bytes32[]"
               }
             ]
-          },
-          {
-            "name": "validAfter",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "validUntil",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "chainId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "singleUse",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "maxValue",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "authorizedCaller",
-            "type": "address",
-            "internalType": "address"
           }
         ]
       },
@@ -151,8 +156,13 @@
   },
   {
     "type": "function",
-    "name": "computePermissionHash",
+    "name": "computePermissionHashWithAccount",
     "inputs": [
+      {
+        "name": "safe",
+        "type": "address",
+        "internalType": "address"
+      },
       {
         "name": "target",
         "type": "address",
@@ -227,13 +237,8 @@
   },
   {
     "type": "function",
-    "name": "computePermissionHashWithAccount",
+    "name": "computePermissionInnerHash",
     "inputs": [
-      {
-        "name": "safe",
-        "type": "address",
-        "internalType": "address"
-      },
       {
         "name": "target",
         "type": "address",
@@ -342,8 +347,8 @@
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "uint248",
+        "internalType": "uint248"
       }
     ],
     "stateMutability": "view"
@@ -398,6 +403,36 @@
             "internalType": "bytes4"
           },
           {
+            "name": "validAfter",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "validUntil",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "singleUse",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "chainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "authorizedCaller",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "rules",
             "type": "tuple[]",
             "internalType": "struct ParamRule[]",
@@ -423,36 +458,6 @@
                 "internalType": "bytes32[]"
               }
             ]
-          },
-          {
-            "name": "validAfter",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "validUntil",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "chainId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "singleUse",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "maxValue",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "authorizedCaller",
-            "type": "address",
-            "internalType": "address"
           }
         ]
       }
@@ -516,6 +521,36 @@
             "internalType": "bytes4"
           },
           {
+            "name": "validAfter",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "validUntil",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "singleUse",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "chainId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "maxValue",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "authorizedCaller",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
             "name": "rules",
             "type": "tuple[]",
             "internalType": "struct ParamRule[]",
@@ -541,36 +576,6 @@
                 "internalType": "bytes32[]"
               }
             ]
-          },
-          {
-            "name": "validAfter",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "validUntil",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "chainId",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "singleUse",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "maxValue",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "authorizedCaller",
-            "type": "address",
-            "internalType": "address"
           }
         ]
       }
@@ -925,7 +930,7 @@
   },
   {
     "type": "error",
-    "name": "ReentrantCall",
+    "name": "Reentrancy",
     "inputs": []
   },
   {

@@ -1,23 +1,29 @@
 /**
- * Round-trip tests for the 4337 client guardData encoding.
+ * Round-trip tests for the client encoding helpers:
+ *   1. packUserOpSignature — encodes proof + Permission + ownerSig into the
+ *      bytes that go in userOp.signature for validateUserOp(userOp, hash).
+ *   2. Legacy positional tuple round-trip to verify field order.
  *
- * Verifies that encodeGuardData produces ABI bytes that decode back to
- * the original Permission struct with the correct on-chain tuple layout:
- *   Permission = (address, bytes4, (uint256, uint8, bytes32, bytes32[])[], uint48, uint48, uint256, bool, uint256, address)
- *   ParamRule  = (uint256 offset, uint8 op, bytes32 value, bytes32[] values)
+ * On-chain Permission struct field order (ClankerGateCore.sol):
+ *   target, selector, validAfter, validUntil, singleUse, chainId,
+ *   maxValue, authorizedCaller, rules[]
  *
- * Notably, ParamRule has exactly FOUR fields — NOT five.
- * The old SDK had a phantom 5th "maxValue" field on the rule tuple that
- * does not exist on-chain, causing silent ABI layout mismatches.
+ * ParamRule has exactly FOUR fields: offset, op, value, values[]
  */
 import { describe, it, expect } from 'vitest';
 import { encodeAbiParameters, decodeAbiParameters, parseAbiParameters, zeroAddress } from 'viem';
 import type { Permission } from '../types/index.js';
 import { OP } from '../types/index.js';
+import { packUserOpSignature, decodePackedSignature, PACKED_SIG_ABI } from '../clients/guardData.js';
 
-// Guard-data ABI matching ClankerGate4337Client.encodeGuardData
-const GUARD_DATA_ABI = parseAbiParameters(
-  'bytes32[], (address, bytes4, (uint256, uint8, bytes32, bytes32[])[], uint48, uint48, uint256, bool, uint256, address), bytes'
+// ---------------------------------------------------------------------------
+// Shared positional ABI string matching the NEW on-chain field order:
+//   (address target, bytes4 selector, uint48 validAfter, uint48 validUntil,
+//    bool singleUse, uint256 chainId, uint256 maxValue, address authorizedCaller,
+//    (uint256 offset, uint8 op, bytes32 value, bytes32[] values)[] rules)
+// ---------------------------------------------------------------------------
+const GUARD_DATA_ABI_POSITIONAL = parseAbiParameters(
+  'bytes32[], (address, bytes4, uint48, uint48, bool, uint256, uint256, address, (uint256, uint8, bytes32, bytes32[])[]), bytes'
 );
 
 function buildTestPermission(overrides: Partial<Permission> = {}): Permission {
@@ -51,11 +57,100 @@ function buildTestPermission(overrides: Partial<Permission> = {}): Permission {
   };
 }
 
-describe('client encoding round-trip', () => {
-  it('encodes and decodes a Permission with rules preserving all 4 rule fields', () => {
+// ---------------------------------------------------------------------------
+// packUserOpSignature round-trip tests
+// ---------------------------------------------------------------------------
+
+describe('packUserOpSignature round-trip', () => {
+  it('encodes and decodes proof + Permission + ownerSig preserving all fields', () => {
+    const permission = buildTestPermission();
+    const proof: `0x${string}`[] = [
+      '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    ];
+    const ownerSignature = '0xdeadbeef01020304' as `0x${string}`;
+
+    const packed = packUserOpSignature({ proof, permission, ownerSignature });
+
+    // Decode with viem using the named-field ABI
+    const [decodedProof, decodedPerm, decodedSig] = decodeAbiParameters(PACKED_SIG_ABI, packed);
+
+    // Proof
+    expect(decodedProof).toHaveLength(2);
+    expect(decodedProof[0]).toBe(proof[0]);
+    expect(decodedProof[1]).toBe(proof[1]);
+
+    // Signature
+    expect(decodedSig.toLowerCase()).toBe(ownerSignature.toLowerCase());
+
+    // Permission scalar fields
+    expect(decodedPerm.target.toLowerCase()).toBe(permission.target.toLowerCase());
+    expect(decodedPerm.selector).toBe(permission.selector);
+    expect(Number(decodedPerm.validAfter)).toBe(permission.validAfter);
+    expect(Number(decodedPerm.validUntil)).toBe(permission.validUntil);
+    expect(decodedPerm.singleUse).toBe(permission.singleUse);
+    expect(decodedPerm.chainId).toBe(BigInt(permission.chainId));
+    expect(decodedPerm.maxValue).toBe(permission.maxValue);
+    expect(decodedPerm.authorizedCaller.toLowerCase()).toBe(permission.authorizedCaller!.toLowerCase());
+
+    // Rules — exactly 4 fields per rule
+    expect(decodedPerm.rules).toHaveLength(2);
+
+    const rule0 = decodedPerm.rules[0];
+    expect(rule0.offset).toBe(BigInt(permission.rules[0].offset));
+    expect(rule0.op).toBe(permission.rules[0].op);
+    expect(rule0.value).toBe(permission.rules[0].value);
+    expect(rule0.values).toEqual([]);
+
+    const rule1 = decodedPerm.rules[1];
+    expect(rule1.offset).toBe(BigInt(permission.rules[1].offset));
+    expect(rule1.op).toBe(permission.rules[1].op);
+    expect(rule1.value).toBe(permission.rules[1].value);
+    expect(rule1.values).toHaveLength(2);
+    expect(rule1.values[0]).toBe(permission.rules[1].values![0]);
+    expect(rule1.values[1]).toBe(permission.rules[1].values![1]);
+  });
+
+  it('decodePackedSignature inverts packUserOpSignature', () => {
+    const permission = buildTestPermission({ rules: [], singleUse: false, maxValue: 0n, authorizedCaller: undefined });
+    const proof: `0x${string}`[] = [];
+    const ownerSignature = '0xcafe' as `0x${string}`;
+
+    const packed = packUserOpSignature({ proof, permission, ownerSignature });
+    const { proof: dProof, ownerSignature: dSig } = decodePackedSignature(packed);
+
+    expect(dProof).toHaveLength(0);
+    expect(dSig.toLowerCase()).toBe(ownerSignature.toLowerCase());
+  });
+
+  it('encodes a permission with no rules and default optional fields', () => {
+    const permission = buildTestPermission({
+      rules: [],
+      singleUse: undefined,
+      maxValue: undefined,
+      authorizedCaller: undefined,
+    });
+    const packed = packUserOpSignature({ proof: [], permission, ownerSignature: '0x' });
+    const [, decodedPerm] = decodeAbiParameters(PACKED_SIG_ABI, packed);
+
+    expect(decodedPerm.rules).toHaveLength(0);
+    expect(decodedPerm.singleUse).toBe(false);
+    expect(decodedPerm.maxValue).toBe(0n);
+    expect(decodedPerm.authorizedCaller.toLowerCase()).toBe(zeroAddress.toLowerCase());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Field order verification — positional ABI matches named ABI
+// ---------------------------------------------------------------------------
+
+describe('client encoding field order', () => {
+  it('positional ABI round-trip preserves all 4 rule fields with correct field order', () => {
     const permission = buildTestPermission();
 
-    // Build the same tuple that ClankerGate4337Client.encodePermission produces
+    // Build the positional tuple in NEW on-chain order:
+    //   (target, selector, validAfter, validUntil, singleUse, chainId,
+    //    maxValue, authorizedCaller, rules[])
     const rulesEncoded = permission.rules.map((rule) => [
       BigInt(rule.offset),
       rule.op,
@@ -66,13 +161,13 @@ describe('client encoding round-trip', () => {
     const permissionTuple = [
       permission.target,
       permission.selector,
-      rulesEncoded,
       permission.validAfter ?? 0,
       permission.validUntil ?? 0,
-      BigInt(permission.chainId ?? 0),
       permission.singleUse ?? false,
+      BigInt(permission.chainId ?? 0),
       permission.maxValue ?? 0n,
       permission.authorizedCaller ?? zeroAddress,
+      rulesEncoded,
     ] as const;
 
     const proof: `0x${string}`[] = [
@@ -82,13 +177,12 @@ describe('client encoding round-trip', () => {
     const signature = '0xdeadbeef' as `0x${string}`;
 
     const encoded = encodeAbiParameters(
-      GUARD_DATA_ABI,
+      GUARD_DATA_ABI_POSITIONAL,
       [proof, permissionTuple, signature]
     );
 
-    // Decode back and assert structural equality
     const [decodedProof, decodedPerm, decodedSig] = decodeAbiParameters(
-      GUARD_DATA_ABI,
+      GUARD_DATA_ABI_POSITIONAL,
       encoded
     );
 
@@ -99,42 +193,40 @@ describe('client encoding round-trip', () => {
     // Signature
     expect(decodedSig.toLowerCase()).toBe(signature.toLowerCase());
 
-    // Permission top-level fields
-    expect(decodedPerm[0].toLowerCase()).toBe(permission.target.toLowerCase()); // target
-    expect(decodedPerm[1]).toBe(permission.selector);                           // selector
-    // validAfter / validUntil are uint48 — viem decodes them as number
-    expect(Number(decodedPerm[3])).toBe(permission.validAfter!);                // validAfter
-    expect(Number(decodedPerm[4])).toBe(permission.validUntil!);                // validUntil
-    expect(decodedPerm[5]).toBe(BigInt(permission.chainId!));                   // chainId (uint256)
-    expect(decodedPerm[6]).toBe(permission.singleUse);                         // singleUse
-    expect(decodedPerm[7]).toBe(permission.maxValue);                          // maxValue
-    expect(decodedPerm[8].toLowerCase()).toBe(permission.authorizedCaller!.toLowerCase()); // authorizedCaller
+    // Permission fields in NEW order: [0]=target, [1]=selector, [2]=validAfter,
+    //   [3]=validUntil, [4]=singleUse, [5]=chainId, [6]=maxValue,
+    //   [7]=authorizedCaller, [8]=rules[]
+    expect(decodedPerm[0].toLowerCase()).toBe(permission.target.toLowerCase());
+    expect(decodedPerm[1]).toBe(permission.selector);
+    expect(Number(decodedPerm[2])).toBe(permission.validAfter!);
+    expect(Number(decodedPerm[3])).toBe(permission.validUntil!);
+    expect(decodedPerm[4]).toBe(permission.singleUse);
+    expect(decodedPerm[5]).toBe(BigInt(permission.chainId!));
+    expect(decodedPerm[6]).toBe(permission.maxValue);
+    expect(decodedPerm[7].toLowerCase()).toBe(permission.authorizedCaller!.toLowerCase());
 
-    // Rules — decoded rules array is index 2
-    const decodedRules = decodedPerm[2];
+    // Rules at index 8
+    const decodedRules = decodedPerm[8];
     expect(decodedRules).toHaveLength(2);
 
-    // Rule 0: LTE rule
     const rule0 = decodedRules[0];
-    expect(rule0[0]).toBe(BigInt(permission.rules[0].offset));  // offset
-    expect(rule0[1]).toBe(permission.rules[0].op);              // op (uint8)
-    expect(rule0[2]).toBe(permission.rules[0].value);           // value
-    // values[] is the 4th element (index 3) — no 5th element
-    expect(rule0[3]).toEqual([]);                               // values (empty)
-    expect(rule0).toHaveLength(4);                             // EXACTLY 4 fields — no phantom 5th
+    expect(rule0[0]).toBe(BigInt(permission.rules[0].offset));
+    expect(rule0[1]).toBe(permission.rules[0].op);
+    expect(rule0[2]).toBe(permission.rules[0].value);
+    expect(rule0[3]).toEqual([]);
+    expect(rule0).toHaveLength(4);  // EXACTLY 4 fields — no phantom 5th
 
-    // Rule 1: IN rule with values
     const rule1 = decodedRules[1];
     expect(rule1[0]).toBe(BigInt(permission.rules[1].offset));
     expect(rule1[1]).toBe(permission.rules[1].op);
     expect(rule1[2]).toBe(permission.rules[1].value);
-    expect(rule1[3]).toHaveLength(2);                          // values has 2 elements
+    expect(rule1[3]).toHaveLength(2);
     expect(rule1[3][0]).toBe(permission.rules[1].values![0]);
     expect(rule1[3][1]).toBe(permission.rules[1].values![1]);
-    expect(rule1).toHaveLength(4);                             // EXACTLY 4 fields
+    expect(rule1).toHaveLength(4);  // EXACTLY 4 fields
   });
 
-  it('encodes a permission with no rules and default optional fields', () => {
+  it('encodes a permission with no rules and default optional fields (positional)', () => {
     const permission = buildTestPermission({
       rules: [],
       singleUse: undefined,
@@ -142,30 +234,28 @@ describe('client encoding round-trip', () => {
       authorizedCaller: undefined,
     });
 
-    const rulesEncoded: readonly (readonly [bigint, number, `0x${string}`, readonly `0x${string}`[]])[] = [];
-
     const permissionTuple = [
       permission.target,
       permission.selector,
-      rulesEncoded,
       permission.validAfter ?? 0,
       permission.validUntil ?? 0,
-      BigInt(permission.chainId ?? 0),
       permission.singleUse ?? false,
+      BigInt(permission.chainId ?? 0),
       permission.maxValue ?? 0n,
       permission.authorizedCaller ?? zeroAddress,
+      [] as readonly (readonly [bigint, number, `0x${string}`, readonly `0x${string}`[]])[],
     ] as const;
 
     const encoded = encodeAbiParameters(
-      GUARD_DATA_ABI,
+      GUARD_DATA_ABI_POSITIONAL,
       [[], permissionTuple, '0x']
     );
 
-    const [, decodedPerm] = decodeAbiParameters(GUARD_DATA_ABI, encoded);
+    const [, decodedPerm] = decodeAbiParameters(GUARD_DATA_ABI_POSITIONAL, encoded);
 
-    expect(decodedPerm[2]).toHaveLength(0);  // no rules
-    expect(decodedPerm[6]).toBe(false);       // singleUse default false
-    expect(decodedPerm[7]).toBe(0n);          // maxValue default 0
-    expect(decodedPerm[8].toLowerCase()).toBe(zeroAddress.toLowerCase()); // authorizedCaller default zero
+    expect(decodedPerm[8]).toHaveLength(0);  // rules at index 8, none
+    expect(decodedPerm[4]).toBe(false);      // singleUse at index 4
+    expect(decodedPerm[6]).toBe(0n);         // maxValue at index 6
+    expect(decodedPerm[7].toLowerCase()).toBe(zeroAddress.toLowerCase()); // authorizedCaller at index 7
   });
 });

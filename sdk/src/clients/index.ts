@@ -4,6 +4,7 @@ export {
   type ClankerGate4337ClientConfig,
   type SetPolicyRootParams as SetPolicyRootParams4337,
   type ValidateUserOpParams,
+  type PackedUserOperation,
 } from './ClankerGate4337Client.js';
 
 export {
@@ -26,5 +27,15 @@ export {
   type OnInstallParams,
   type SetPolicyRootParams as SetPolicyRootParams7579,
   type SetOwnerParams,
-  type ComputePermissionHashParams,
+  type ValidateUserOpParams as ValidateUserOpParams7579,
+  type SetPolicyAdminParams,
 } from './ClankerGate7579Client.js';
+
+export {
+  packUserOpSignature,
+  encodeGuardData,
+  decodePackedSignature,
+  PACKED_SIG_ABI,
+  PACKED_SIG_ABI_STRING,
+  type PackUserOpSignatureParams,
+} from './guardData.js';

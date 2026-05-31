@@ -164,6 +164,12 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
       });
     },
 
+    /**
+     * Execute a transaction through the Safe module.
+     *
+     * execTransaction is non-payable — no ETH is forwarded to the module call
+     * itself (the `value` arg is a uint256 passed as a parameter to the Safe).
+     */
     execTransaction(params: ExecTransactionParams) {
       if (!walletClient) {
         throw new Error('Wallet client required for write operations');
@@ -187,6 +193,10 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
       });
     },
 
+    /**
+     * Execute a transaction through the Safe module (with proof variant).
+     * Non-payable — no ETH forwarded to the module call.
+     */
     execTransactionWithProof(params: ExecTransactionParams) {
       if (!walletClient) {
         throw new Error('Wallet client required for write operations');
@@ -210,11 +220,30 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
       });
     },
 
-    async computePermissionHash(permission: Permission): Promise<Hash> {
+    /**
+     * Compute the account-scoped permission hash (canonical Merkle leaf).
+     *
+     * Uses the `computePermissionHash(address account, Permission permission, uint256 nonce)`
+     * overload. The old field-based overload has been renamed to `computePermissionInnerHash`.
+     */
+    async computePermissionHash(safe: Address, permission: Permission, nonce: bigint): Promise<Hash> {
       return publicClient.readContract({
         address,
         abi: ClankerGateSafeABI,
         functionName: 'computePermissionHash',
+        args: [safe, encodePermissionStruct(permission), nonce],
+      }) as Promise<Hash>;
+    },
+
+    /**
+     * Compute the inner (field-based) permission hash without a Safe scope.
+     * Renamed from the old field-based `computePermissionHash` overload.
+     */
+    async computePermissionInnerHash(permission: Permission): Promise<Hash> {
+      return publicClient.readContract({
+        address,
+        abi: ClankerGateSafeABI,
+        functionName: 'computePermissionInnerHash',
         args: [
           permission.target,
           permission.selector,
@@ -229,7 +258,6 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
           BigInt(permission.chainId ?? 0),
           permission.singleUse ?? false,
           permission.maxValue ?? 0n,
-          permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
         ],
       }) as Promise<Hash>;
     },
@@ -268,32 +296,36 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
   };
 }
 
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
 function encodePermissionStruct(permission: Permission): {
   target: Address;
   selector: Hex;
-  rules: readonly { offset: bigint; op: number; value: Hash; values: readonly Hash[] }[];
   validAfter: number;
   validUntil: number;
-  chainId: bigint;
   singleUse: boolean;
+  chainId: bigint;
   maxValue: bigint;
   authorizedCaller: Address;
+  rules: readonly { offset: bigint; op: number; value: Hash; values: readonly Hash[] }[];
 } {
   return {
     target: permission.target,
     selector: permission.selector,
+    validAfter: permission.validAfter ?? 0,
+    validUntil: permission.validUntil ?? 0,
+    singleUse: permission.singleUse ?? false,
+    chainId: BigInt(permission.chainId ?? 0),
+    maxValue: permission.maxValue ?? 0n,
+    authorizedCaller: permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
     rules: permission.rules.map((r) => ({
       offset: BigInt(r.offset),
       op: r.op,
       value: r.value,
       values: r.values ?? [],
     })),
-    validAfter: permission.validAfter,
-    validUntil: permission.validUntil,
-    chainId: BigInt(permission.chainId),
-    singleUse: permission.singleUse ?? false,
-    maxValue: permission.maxValue ?? 0n,
-    authorizedCaller: permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
   };
 }
 

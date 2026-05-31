@@ -12,8 +12,11 @@ import {
 } from 'viem';
 import { ClankerGate7579ABI } from '../contracts/index.js';
 import type { Permission } from '../types/index.js';
+import { packUserOpSignature } from './guardData.js';
+import type { PackedUserOperation, ValidateUserOpParams as ValidateUserOpParams4337 } from './ClankerGate4337Client.js';
 
 export type { Address, Hash, Hex, Account, WalletClient, PublicClient, Chain };
+export type { PackedUserOperation };
 
 export interface ClankerGate7579ClientConfig {
   address: Address;
@@ -22,12 +25,17 @@ export interface ClankerGate7579ClientConfig {
   chain?: Chain | null;
 }
 
+/**
+ * The six-field config returned by getAccountConfig.
+ * Field order from ABI: owner, policyRoot, nonce, signatureValidator, installed, policyAdmin
+ */
 export interface AccountConfig {
   owner: Address;
   policyRoot: Hash;
   nonce: bigint;
   signatureValidator: Address;
   installed: boolean;
+  policyAdmin: Address;
 }
 
 export interface OnInstallParams {
@@ -49,18 +57,20 @@ export interface SetOwnerParams {
   newOwner: Address;
 }
 
-export interface ComputePermissionHashParams {
-  target: Address;
-  selector: Hex;
-  rules: readonly {
-    offset: bigint;
-    op: number;
-    value: Hash;
-    values: readonly Hash[];
-  }[];
-  validAfter: number;
-  validUntil: number;
-  chainId: bigint;
+export interface SetPolicyAdminParams {
+  account: Address | Account;
+  targetAccount: Address;
+  admin: Address;
+}
+
+export interface ValidateUserOpParams {
+  userOp: PackedUserOperation;
+  userOpHash: Hash;
+  guardData: {
+    proof: readonly Hash[];
+    permission: Permission;
+    ownerSignature: Hex;
+  };
 }
 
 export function createClankerGate7579Client(config: ClankerGate7579ClientConfig) {
@@ -69,13 +79,17 @@ export function createClankerGate7579Client(config: ClankerGate7579ClientConfig)
   return {
     address,
 
+    /**
+     * Returns the full six-field AccountConfig for a given account.
+     * Field order: owner, policyRoot, nonce, signatureValidator, installed, policyAdmin
+     */
     async getAccountConfig(account: Address): Promise<AccountConfig> {
       const result = await publicClient.readContract({
         address,
         abi: ClankerGate7579ABI,
-        functionName: 'accountConfigs',
+        functionName: 'getAccountConfig',
         args: [account],
-      }) as [Address, Hash, bigint, Address, boolean];
+      }) as [Address, Hash, bigint, Address, boolean, Address];
 
       return {
         owner: result[0],
@@ -83,6 +97,7 @@ export function createClankerGate7579Client(config: ClankerGate7579ClientConfig)
         nonce: result[2],
         signatureValidator: result[3],
         installed: result[4],
+        policyAdmin: result[5],
       };
     },
 
@@ -95,12 +110,32 @@ export function createClankerGate7579Client(config: ClankerGate7579ClientConfig)
       }) as Promise<boolean>;
     },
 
-    async moduleType(): Promise<bigint> {
+    /**
+     * Query whether this validator satisfies a given ERC-7579 module type ID.
+     * Replaces the old `moduleType()` function.
+     *
+     * @param moduleTypeId  1 = validator, 2 = executor, 3 = fallback, 4 = hook
+     */
+    async isModuleType(moduleTypeId: bigint): Promise<boolean> {
       return publicClient.readContract({
         address,
         abi: ClankerGate7579ABI,
-        functionName: 'moduleType',
-      }) as Promise<bigint>;
+        functionName: 'isModuleType',
+        args: [moduleTypeId],
+      }) as Promise<boolean>;
+    },
+
+    /**
+     * Validate a signature using ERC-1271 with sender context.
+     * Added in the new contract interface.
+     */
+    async isValidSignatureWithSender(sender: Address, hash: Hash, signature: Hex): Promise<Hex> {
+      return publicClient.readContract({
+        address,
+        abi: ClankerGate7579ABI,
+        functionName: 'isValidSignatureWithSender',
+        args: [sender, hash, signature],
+      }) as Promise<Hex>;
     },
 
     onInstall(params: OnInstallParams) {
@@ -168,18 +203,97 @@ export function createClankerGate7579Client(config: ClankerGate7579ClientConfig)
       });
     },
 
-    async computePermissionHash(params: ComputePermissionHashParams): Promise<Hash> {
+    /**
+     * Set the policy admin for an account.
+     */
+    setPolicyAdmin(params: SetPolicyAdminParams) {
+      if (!walletClient) {
+        throw new Error('Wallet client required for write operations');
+      }
+
+      return walletClient.writeContract({
+        address,
+        abi: ClankerGate7579ABI,
+        functionName: 'setPolicyAdmin',
+        args: [params.targetAccount, params.admin],
+        account: params.account,
+        chain,
+      });
+    },
+
+    /**
+     * Validate a user operation.
+     *
+     * Packs proof + permission + ownerSignature into `userOp.signature` and
+     * calls the 2-arg `validateUserOp(userOp, userOpHash)`.
+     */
+    async validateUserOp(params: ValidateUserOpParams): Promise<bigint> {
+      const { userOp, userOpHash, guardData } = params;
+
+      const packedSignature = packUserOpSignature({
+        proof: guardData.proof,
+        permission: guardData.permission,
+        ownerSignature: guardData.ownerSignature,
+      });
+
+      const packedOp: PackedUserOperation = { ...userOp, signature: packedSignature };
+
+      return publicClient.readContract({
+        address,
+        abi: ClankerGate7579ABI,
+        functionName: 'validateUserOp',
+        args: [
+          [
+            packedOp.sender,
+            packedOp.nonce,
+            packedOp.initCode,
+            packedOp.callData,
+            packedOp.accountGasLimits,
+            packedOp.preVerificationGas,
+            packedOp.gasFees,
+            packedOp.paymasterAndData,
+            packedOp.signature,
+          ],
+          userOpHash,
+        ],
+      }) as Promise<bigint>;
+    },
+
+    /**
+     * Compute the account-scoped permission hash (canonical Merkle leaf).
+     */
+    async computePermissionHash(account: Address, permission: Permission, nonce: bigint): Promise<Hash> {
       return publicClient.readContract({
         address,
         abi: ClankerGate7579ABI,
         functionName: 'computePermissionHash',
+        args: [account, encodePermissionStruct(permission), nonce],
+      }) as Promise<Hash>;
+    },
+
+    /**
+     * Compute the inner (field-based) permission hash — renamed from the old
+     * field-based `computePermissionHash` overload to `computePermissionInnerHash`.
+     */
+    async computePermissionInnerHash(permission: Permission): Promise<Hash> {
+      return publicClient.readContract({
+        address,
+        abi: ClankerGate7579ABI,
+        functionName: 'computePermissionInnerHash',
         args: [
-          params.target,
-          params.selector,
-          params.rules,
-          params.validAfter,
-          params.validUntil,
-          params.chainId,
+          permission.target,
+          permission.selector,
+          permission.rules.map((r) => ({
+            offset: BigInt(r.offset),
+            op: r.op,
+            value: r.value,
+            values: r.values ?? [],
+          })),
+          permission.validAfter ?? 0,
+          permission.validUntil ?? 0,
+          BigInt(permission.chainId ?? 0),
+          permission.singleUse ?? false,
+          permission.maxValue ?? 0n,
         ],
       }) as Promise<Hash>;
     },
@@ -212,6 +326,39 @@ export function createClankerGate7579Client(config: ClankerGate7579ClientConfig)
         args: [targetAccount, root],
       });
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function encodePermissionStruct(permission: Permission): {
+  target: Address;
+  selector: Hex;
+  validAfter: number;
+  validUntil: number;
+  singleUse: boolean;
+  chainId: bigint;
+  maxValue: bigint;
+  authorizedCaller: Address;
+  rules: readonly { offset: bigint; op: number; value: Hash; values: readonly Hash[] }[];
+} {
+  return {
+    target: permission.target,
+    selector: permission.selector,
+    validAfter: permission.validAfter ?? 0,
+    validUntil: permission.validUntil ?? 0,
+    singleUse: permission.singleUse ?? false,
+    chainId: BigInt(permission.chainId ?? 0),
+    maxValue: permission.maxValue ?? 0n,
+    authorizedCaller: permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
+    rules: permission.rules.map((r) => ({
+      offset: BigInt(r.offset),
+      op: r.op,
+      value: r.value,
+      values: r.values ?? [],
+    })),
   };
 }
 
