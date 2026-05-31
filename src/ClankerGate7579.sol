@@ -441,7 +441,7 @@ contract ClankerGate7579 {
     }
 
     /**
-     * @notice Get expected signer for an account with fallback handling
+     * @notice Get expected signer for an account
      * @param account The account address
      * @return The expected signer address
      */
@@ -449,40 +449,33 @@ contract ClankerGate7579 {
         AccountConfig storage config = accountConfigs[account];
         address sigValidator = config.signatureValidator;
 
-        if (sigValidator == address(0)) {
-            // CG-11: Use low-level staticcall with bounded output (32 bytes) to prevent
-            // return data bomb attacks. Malicious contracts could return massive payloads
-            // to exhaust memory with high-level try/catch which allocates full return data.
-            // First check cached owner from onInstall
-            if (config.owner != address(0)) {
-                return config.owner;
-            }
-            // Then try low-level staticcall
-            bool success;
-            address owner;
-            assembly {
-                mstore(0x00, 0x5c60da1b00000000000000000000000000000000000000000000000000000000)
-                success := staticcall(gas(), account, 0x00, 0x04, 0x00, 0x20)
-                if success {
-                    owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
-                }
-            }
-            // Fallback to bounded assembly staticcall if primary failed
-            if (!success || owner == address(0)) {
-                assembly {
-                    mstore(0x00, 0x8da5cb5b00000000000000000000000000000000000000000000000000000000)
-                    let callSuccess := staticcall(gas(), account, 0x00, 0x04, 0x00, 0x20)
-                    if callSuccess {
-                        owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
-                    }
-                }
-                if (owner == address(0)) revert AccountHasNoOwner(account);
-            }
-            return owner;
+        // Use custom signature validator when set
+        if (sigValidator != address(0)) {
+            return sigValidator;
         }
 
-        // Use custom signature validator
-        return sigValidator;
+        // CG-11: Use low-level staticcall with bounded output (32 bytes) to prevent
+        // return data bomb attacks. Malicious contracts could return massive payloads
+        // to exhaust memory with high-level try/catch which allocates full return data.
+        // First check cached owner from onInstall (avoids an external call)
+        if (config.owner != address(0)) {
+            return config.owner;
+        }
+
+        // H-1: Use owner() (0x8da5cb5b) as the sole external selector.
+        // implementation() (0x5c60da1b) must NOT be called — proxy accounts expose it and
+        // would cause the implementation contract address to be treated as the owner.
+        bool success;
+        address owner;
+        assembly {
+            mstore(0x00, 0x8da5cb5b00000000000000000000000000000000000000000000000000000000)
+            success := staticcall(gas(), account, 0x00, 0x04, 0x00, 0x20)
+            if success {
+                owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
+            }
+        }
+        if (!success || owner == address(0)) revert AccountHasNoOwner(account);
+        return owner;
     }
 
     /// @notice Packs validation data according to ERC-4337 format

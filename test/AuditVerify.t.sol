@@ -34,6 +34,13 @@ contract ProxyAccountMock is IAccount {
     function validateUserOp(bytes calldata, bytes32, uint256) external pure override returns (uint256) { return 0; }
 }
 
+/// A minimal account that has NO owner() function and no fallback — used to test AccountHasNoOwner.
+contract NoOwnerAccountMock {
+    // Intentionally no owner(), no fallback, no receive.
+    // validateUserOp stub so the address has code.
+    function validateUserOp(bytes calldata, bytes32, uint256) external pure returns (uint256) { return 0; }
+}
+
 contract AuditVerify is Test {
     CoreHarness harness;
     ClankerGate4337 gate;
@@ -165,10 +172,10 @@ contract AuditVerify is Test {
         assertEq(vd2, 0, "direct (unwrapped) inner call passes");
     }
 
-    /// FINDING: _getOwner() calls implementation() (0x5c60da1b) FIRST and only falls back to
-    /// owner() (0x8da5cb5b). An account that exposes implementation() has its *implementation
-    /// contract address* treated as the owner, so every owner-signed op is rejected (DoS).
-    function test_getOwner_usesImplementationAsOwner() public {
+    /// FIX (H-1): _getOwner() now uses owner() (0x8da5cb5b) as the sole selector and ignores
+    /// implementation() (0x5c60da1b). A proxy account that exposes both must have the real
+    /// owner address returned, so a correctly owner-signed op now SUCCEEDS.
+    function test_getOwner_usesOwnerNotImplementation() public {
         ProxyAccountMock proxyAcct = new ProxyAccountMock(owner);
 
         Permission memory p;
@@ -187,11 +194,48 @@ contract AuditVerify is Test {
         bytes memory guardData = abi.encode(proof, p, sig);
         bytes memory inner = abi.encodeWithSelector(INNER_SEL, uint256(0.5 ether));
 
-        // Real owner signed correctly, yet validation reverts because _getOwner returned IMPL (0xBEEF).
-        vm.expectRevert(
-            abi.encodeWithSelector(ClankerGate4337.UnauthorizedSigner.selector, address(0xBEEF), owner)
+        // After the fix: _getOwner returns the real owner (not IMPL=0xBEEF), so validation succeeds.
+        uint256 result = gate.validateUserOp(_userOp(address(proxyAcct), inner), userOpHash, guardData);
+        assertEq(result, 0, "owner-signed op must pass (0 = valid)");
+    }
+
+    /// FIX (H-1): An account with no owner() causes _getOwner to revert AccountHasNoOwner.
+    function test_getOwner_revertsWhenNoOwner() public {
+        NoOwnerAccountMock noOwnerAcct = new NoOwnerAccountMock();
+
+        Permission memory p;
+        p.target = ROUTER;
+        p.selector = INNER_SEL;
+        p.rules = new ParamRule[](0);
+
+        // Set a policy root as if this account had previously called setPolicyRoot directly.
+        // We use vm.store to bypass the owner check for setup purposes.
+        bytes32 leaf = gate.computePermissionHash(address(noOwnerAcct), p, 1);
+        // Store root directly in the mapping slot (slot 0 of policyRoots).
+        // policyRoots is mapping(address => bytes32) at slot 0.
+        vm.store(
+            address(gate),
+            keccak256(abi.encode(address(noOwnerAcct), uint256(0))),
+            leaf
         );
-        gate.validateUserOp(_userOp(address(proxyAcct), inner), userOpHash, guardData);
+        // Also set nonce to 1 via slot 1.
+        vm.store(
+            address(gate),
+            keccak256(abi.encode(address(noOwnerAcct), uint256(1))),
+            bytes32(uint256(1))
+        );
+
+        bytes32[] memory proof = new bytes32[](0);
+        bytes32 userOpHash = keccak256("op");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+        bytes memory guardData = abi.encode(proof, p, sig);
+        bytes memory callData = abi.encodeWithSelector(INNER_SEL, uint256(0));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerGate4337.AccountHasNoOwner.selector, address(noOwnerAcct))
+        );
+        gate.validateUserOp(_userOp(address(noOwnerAcct), callData), userOpHash, guardData);
     }
 
     function _userOp(address sender, bytes memory callData) internal pure returns (bytes memory) {
