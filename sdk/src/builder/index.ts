@@ -1,6 +1,8 @@
 import { keccak256, encodeAbiParameters, parseAbiParameters } from 'viem';
 import type { Permission, Hex32, MerkleProofResult, ParamRule } from '../types/index.js';
 
+export { computeDomainSeparator, hashPermissionStruct, hashPermissionLeaf } from './leaf.js';
+
 function encodeRule(rule: ParamRule): readonly [bigint, number, Hex32, readonly Hex32[]] {
   return [
     BigInt(rule.offset),

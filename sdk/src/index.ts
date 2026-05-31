@@ -65,7 +65,7 @@
 
 import type { Permission, PolicyConfig, ABIEntry, OpType } from './types/index.js';
 import { compilePolicy, createPolicyBuilder } from './policy-compiler/index.js';
-import { createMerkleTreeBuilder, hashPermission, verifyMerkleProof } from './builder/index.js';
+import { createMerkleTreeBuilder, hashPermission, verifyMerkleProof, hashPermissionLeaf } from './builder/index.js';
 import { createABIRegistry, defaultRegistry } from './abi-registry/index.js';
 import { createSimulator, simulator } from './simulator/index.js';
 
@@ -163,10 +163,16 @@ export const ClankerGate = {
   merkleTree: () => createMerkleTreeBuilder(),
   
   /**
-   * Hashes a permission for use in Merkle tree.
+   * Hashes a permission for use in Merkle tree (legacy, no account/nonce scope).
    */
   hashPermission,
-  
+
+  /**
+   * Computes the canonical on-chain Merkle leaf for an account-scoped permission.
+   * Reproduces ClankerGateCore.hashPermissionWithAccount(account, permission, nonce) exactly.
+   */
+  hashPermissionLeaf,
+
   /**
    * Verifies a Merkle proof against a known root.
    */
