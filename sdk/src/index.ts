@@ -1,18 +1,18 @@
 /**
  * @clanker/gate-client
- * 
+ *
  * TypeScript SDK for ClankerGate - a policy-based transaction validator
  * for ERC-4337 Smart Accounts and Gnosis Safe modules.
- * 
+ *
  * @packageDocumentation
- * 
+ *
  * ClankerGate enables fine-grained control over what operations can be
  * performed by external executors without giving them full private key access.
- * 
+ *
  * @example Basic Usage - Policy Creation
  * ```typescript
  * import { ClankerGate, UNISWAP_V3_ROUTER_ABI, OP } from '@clanker/gate-client';
- * 
+ *
  * // Create a policy using the fluent API
  * const permission = ClankerGate.policy(UNISWAP_V3_ROUTER_ABI)
  *   .allow()
@@ -21,41 +21,41 @@
  *   .where('params.amountIn')
  *   .lte(BigInt('1000000000000000000')) // Max 1 ETH
  *   .build();
- * 
+ *
  * // Build Merkle tree and generate proof
- * const builder = ClankerGate.merkleTree();
+ * const builder = ClankerGate.merkleTree({ account, gateAddress, chainId, nonce });
  * builder.addPermission(permission);
  * const { root } = builder.build();
  * const proof = builder.getProof(permission);
  * ```
- * 
+ *
  * @example ERC-4337 Integration
  * ```typescript
  * import { createClankerGate4337Client, permission } from '@clanker/gate-client';
- * 
+ *
  * const client = createClankerGate4337Client({
  *   address: '0x...',
  *   publicClient,
  *   walletClient,
  * });
- * 
+ *
  * // Set policy root
  * await client.setPolicyRoot({ account, root });
  * ```
- * 
+ *
  * @example Gnosis Safe Integration
  * ```typescript
  * import { createClankerGateSafeClient, permission } from '@clanker/gate-client';
- * 
+ *
  * const client = createClankerGateSafeClient({
  *   address: '0x...',
  *   publicClient,
  *   walletClient,
  * });
- * 
+ *
  * // Authorize caller
  * await client.authorizeCaller({ safe, caller, account });
- * 
+ *
  * // Execute transaction with proof
  * await client.execTransaction({
  *   safe, to, value, data, operation: 0, proof, permission, account
@@ -65,9 +65,14 @@
 
 import type { Permission, PolicyConfig, ABIEntry, OpType } from './types/index.js';
 import { compilePolicy, createPolicyBuilder } from './policy-compiler/index.js';
-import { createMerkleTreeBuilder, hashPermission, verifyMerkleProof, hashPermissionLeaf } from './builder/index.js';
+import {
+  createMerkleTreeBuilder,
+  verifyMerkleProof,
+  hashPermissionLeaf,
+  type MerkleTreeConfig,
+} from './builder/index.js';
 import { createABIRegistry, defaultRegistry } from './abi-registry/index.js';
-import { createSimulator, simulator } from './simulator/index.js';
+import { createSimulator } from './simulator/index.js';
 
 export * from './types/index.js';
 export * from './abi-registry/index.js';
@@ -114,13 +119,13 @@ export type {
 
 /**
  * Main API object for ClankerGate SDK.
- * 
+ *
  * Provides convenient methods for:
  * - Creating policies via fluent builder
  * - Compiling policy configurations
  * - Building Merkle trees for on-chain verification
  * - Managing ABIs in a registry
- * 
+ *
  * @example
  * ```typescript
  * // Create policy
@@ -131,12 +136,12 @@ export type {
  *   .where('amount')
  *   .lte(maxAmount)
  *   .build();
- * 
- * // Build Merkle tree
- * const tree = ClankerGate.merkleTree();
+ *
+ * // Build Merkle tree (account-scoped, matches on-chain leaf)
+ * const tree = ClankerGate.merkleTree({ account, gateAddress, chainId: 1n, nonce: 0n });
  * tree.addPermission(permission);
  * const { root } = tree.build();
- * 
+ *
  * // Get ABI from registry
  * const abi = ClankerGate.registry.get('UniswapV3Router');
  * ```
@@ -148,24 +153,21 @@ export const ClankerGate = {
    * @returns Policy builder with chainable methods
    */
   policy: (abi: readonly ABIEntry[]) => createPolicyBuilder(abi),
-  
+
   /**
    * Compiles a policy configuration into a Permission.
    * @param config - Policy configuration
    * @returns Compiled permission
    */
   compile: (config: PolicyConfig) => compilePolicy(config),
-  
+
   /**
-   * Creates a new Merkle tree builder.
-   * @returns Empty Merkle tree builder
+   * Creates a new Merkle tree builder with account-scoped canonical leaves.
+   * Every leaf = keccak256(abi.encode(account, permHash, nonce)) matching on-chain.
+   * @param config - Account + gate context for leaf computation
+   * @returns Merkle tree builder
    */
-  merkleTree: () => createMerkleTreeBuilder(),
-  
-  /**
-   * Hashes a permission for use in Merkle tree (legacy, no account/nonce scope).
-   */
-  hashPermission,
+  merkleTree: (config: MerkleTreeConfig) => createMerkleTreeBuilder(config),
 
   /**
    * Computes the canonical on-chain Merkle leaf for an account-scoped permission.
@@ -177,18 +179,18 @@ export const ClankerGate = {
    * Verifies a Merkle proof against a known root.
    */
   verifyProof: verifyMerkleProof,
-  
+
   /**
    * Creates a new off-chain simulator for testing policies.
    * @returns Simulator instance
    */
   simulator: createSimulator,
-  
+
   /**
    * Default ABI registry with Uniswap V3 Router pre-registered.
    */
   registry: defaultRegistry,
-  
+
   /**
    * Creates a new empty ABI registry.
    */
@@ -197,13 +199,13 @@ export const ClankerGate = {
 
 /**
  * Shorthand function to create a permission from policy components.
- * 
+ *
  * @param abi - Contract ABI
  * @param target - Target contract address
  * @param functionName - Function name to allow
  * @param rules - Array of validation rules
  * @returns Compiled permission
- * 
+ *
  * @example
  * ```typescript
  * const perm = permission(

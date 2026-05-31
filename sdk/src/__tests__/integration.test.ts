@@ -3,6 +3,15 @@ import { ClankerGate, permission } from '../index.js';
 import { UNISWAP_V3_ROUTER_ABI } from '../abi-registry/index.js';
 import { OP } from '../types/index.js';
 import { encodeFunctionData } from 'viem';
+import type { MerkleTreeConfig } from '../builder/index.js';
+
+// Deterministic test config — arbitrary fixed values consistent within tests.
+const TEST_CONFIG: MerkleTreeConfig = {
+  account: '0x1111111111111111111111111111111111111111',
+  gateAddress: '0x2222222222222222222222222222222222222222',
+  chainId: 1n,
+  nonce: 0n,
+};
 
 describe('integration', () => {
   describe('ClankerGate API', () => {
@@ -29,14 +38,14 @@ describe('integration', () => {
         .lte(BigInt('1000000000000000000'))
         .build();
 
-      const builder = ClankerGate.merkleTree();
+      const builder = ClankerGate.merkleTree(TEST_CONFIG);
       builder.addPermission(perm);
-      
+
       const { root } = builder.build();
       const proof = builder.getProof(perm);
 
       expect(root).toMatch(/^0x[a-f0-9]{64}$/);
-      expect(proof.leaf).toBe(ClankerGate.hashPermission(perm));
+      expect(proof.leaf).toBe(ClankerGate.hashPermissionLeaf({ permission: perm, ...TEST_CONFIG }));
       expect(ClankerGate.verifyProof(proof.root, proof.proof, proof.leaf)).toBe(true);
     });
 
@@ -179,7 +188,7 @@ describe('integration', () => {
 
   describe('Multiple permissions in merkle tree', () => {
     it('should handle 4 permissions in tree', () => {
-      const builder = ClankerGate.merkleTree();
+      const builder = ClankerGate.merkleTree(TEST_CONFIG);
 
       const perm1 = permission(
         UNISWAP_V3_ROUTER_ABI,

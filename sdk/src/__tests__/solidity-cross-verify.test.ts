@@ -1,9 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { hashPermission } from '../builder/index.js';
+import { hashPermissionStruct, hashPermissionLeaf, computeDomainSeparator } from '../builder/index.js';
 import { UNISWAP_V3_ROUTER_ABI } from '../abi-registry/index.js';
 import { compilePolicy } from '../policy-compiler/index.js';
 import { OP } from '../types/index.js';
-import { encodeAbiParameters, parseAbiParameters, keccak256 } from 'viem';
+import { encodeAbiParameters, parseAbiParameters, keccak256, toBytes, zeroAddress } from 'viem';
+import type { MerkleTreeConfig } from '../builder/index.js';
+
+const TEST_CONFIG: MerkleTreeConfig = {
+  account: '0x1111111111111111111111111111111111111111',
+  gateAddress: '0x2222222222222222222222222222222222222222',
+  chainId: 1n,
+  nonce: 0n,
+};
 
 describe('SDK ↔ Solidity cross-verification', () => {
   it('should produce deterministic hashes for new Permission struct', () => {
@@ -17,14 +25,15 @@ describe('SDK ↔ Solidity cross-verification', () => {
       ],
     });
 
-    const sdkHash = hashPermission(permission);
-    
+    const domainSeparator = computeDomainSeparator(TEST_CONFIG.gateAddress, TEST_CONFIG.chainId);
+    const sdkHash = hashPermissionStruct(permission, domainSeparator);
+
     // Hash should be deterministic and non-zero
     expect(sdkHash).toMatch(/^0x[a-f0-9]{64}$/);
     expect(sdkHash).not.toBe('0x0000000000000000000000000000000000000000000000000000000000000000');
   });
 
-  it('should match abi.encode format for permission struct with lifecycle fields', () => {
+  it('should match manual abi.encode derivation of the canonical formula', () => {
     const permission = compilePolicy({
       abi: UNISWAP_V3_ROUTER_ABI,
       target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
@@ -34,30 +43,69 @@ describe('SDK ↔ Solidity cross-verification', () => {
       ],
     });
 
-    const rulesEncoded = permission.rules.map((rule) => [
-      BigInt(rule.offset),
-      rule.op,
-      rule.value,
-      rule.values ?? [],
-    ] as const);
-
-    const encoded = encodeAbiParameters(
-      parseAbiParameters('address, bytes4, (uint256, uint8, bytes32, bytes32[])[], uint48, uint48, uint256, bool'),
-      [
-        permission.target,
-        permission.selector,
-        rulesEncoded,
-        permission.validAfter,
-        permission.validUntil,
-        BigInt(permission.chainId),
-        permission.singleUse ?? false,
-      ]
+    // Manually reproduce the canonical on-chain formula step-by-step.
+    // Step 1: domain separator
+    const DOMAIN_TYPEHASH = keccak256(
+      toBytes('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
+    );
+    const nameHash = keccak256(toBytes('ClankerGate'));
+    const versionHash = keccak256(toBytes('1'));
+    const domainSeparator = keccak256(
+      encodeAbiParameters(
+        [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }, { type: 'uint256' }, { type: 'address' }],
+        [DOMAIN_TYPEHASH, nameHash, versionHash, TEST_CONFIG.chainId, TEST_CONFIG.gateAddress]
+      )
     );
 
-    const sdkHash = keccak256(encoded);
-    const builderHash = hashPermission(permission);
+    // Step 2: rule hashes (offset, op, value, values)
+    const ruleHashes = permission.rules.map((rule) =>
+      keccak256(
+        encodeAbiParameters(
+          [{ type: 'uint256' }, { type: 'uint8' }, { type: 'bytes32' }, { type: 'bytes32[]' }],
+          [BigInt(rule.offset), rule.op, rule.value, rule.values ?? []]
+        )
+      )
+    );
 
-    expect(sdkHash).toBe(builderHash);
+    // Step 3: encodedPermission (9 fields, chainId BEFORE singleUse)
+    const encodedPermission = keccak256(
+      encodeAbiParameters(
+        [
+          { type: 'address' },
+          { type: 'bytes4' },
+          { type: 'bytes32[]' },
+          { type: 'uint48' },
+          { type: 'uint48' },
+          { type: 'uint256' },
+          { type: 'bool' },
+          { type: 'uint256' },
+          { type: 'address' },
+        ],
+        [
+          permission.target,
+          permission.selector,
+          ruleHashes,
+          permission.validAfter ?? 0,
+          permission.validUntil ?? 0,
+          BigInt(permission.chainId ?? 0),
+          permission.singleUse ?? false,
+          permission.maxValue ?? 0n,
+          permission.authorizedCaller ?? zeroAddress,
+        ]
+      )
+    );
+
+    // Step 4: permHash
+    const permHash = keccak256(
+      encodeAbiParameters(
+        [{ type: 'bytes32' }, { type: 'bytes32' }],
+        [domainSeparator, encodedPermission]
+      )
+    );
+
+    const sdkHash = hashPermissionStruct(permission, computeDomainSeparator(TEST_CONFIG.gateAddress, TEST_CONFIG.chainId));
+
+    expect(sdkHash).toBe(permHash);
   });
 
   it('should produce deterministic hashes for empty rules', () => {
@@ -68,8 +116,9 @@ describe('SDK ↔ Solidity cross-verification', () => {
       rules: [],
     });
 
-    const hash1 = hashPermission(permission);
-    const hash2 = hashPermission(permission);
+    const domainSeparator = computeDomainSeparator(TEST_CONFIG.gateAddress, TEST_CONFIG.chainId);
+    const hash1 = hashPermissionStruct(permission, domainSeparator);
+    const hash2 = hashPermissionStruct(permission, domainSeparator);
 
     expect(hash1).toBe(hash2);
     expect(hash1).toMatch(/^0x[a-f0-9]{64}$/);
@@ -96,7 +145,8 @@ describe('SDK ↔ Solidity cross-verification', () => {
       ],
     });
 
-    expect(hashPermission(permission1)).not.toBe(hashPermission(permission2));
+    const domainSeparator = computeDomainSeparator(TEST_CONFIG.gateAddress, TEST_CONFIG.chainId);
+    expect(hashPermissionStruct(permission1, domainSeparator)).not.toBe(hashPermissionStruct(permission2, domainSeparator));
   });
 
   it('should produce different hashes for different validUntil', () => {
@@ -112,7 +162,8 @@ describe('SDK ↔ Solidity cross-verification', () => {
       validUntil: 1735689600,
     };
 
-    expect(hashPermission(permission1)).not.toBe(hashPermission(permission2));
+    const domainSeparator = computeDomainSeparator(TEST_CONFIG.gateAddress, TEST_CONFIG.chainId);
+    expect(hashPermissionStruct(permission1, domainSeparator)).not.toBe(hashPermissionStruct(permission2, domainSeparator));
   });
 
   it('should produce different hashes for different chainId', () => {
@@ -128,7 +179,8 @@ describe('SDK ↔ Solidity cross-verification', () => {
       chainId: 1, // Ethereum mainnet
     };
 
-    expect(hashPermission(permission1)).not.toBe(hashPermission(permission2));
+    const domainSeparator = computeDomainSeparator(TEST_CONFIG.gateAddress, TEST_CONFIG.chainId);
+    expect(hashPermissionStruct(permission1, domainSeparator)).not.toBe(hashPermissionStruct(permission2, domainSeparator));
   });
 
   it('should produce different hashes for singleUse flag', () => {
@@ -144,6 +196,29 @@ describe('SDK ↔ Solidity cross-verification', () => {
       singleUse: true,
     };
 
-    expect(hashPermission(permission1)).not.toBe(hashPermission(permission2));
+    const domainSeparator = computeDomainSeparator(TEST_CONFIG.gateAddress, TEST_CONFIG.chainId);
+    expect(hashPermissionStruct(permission1, domainSeparator)).not.toBe(hashPermissionStruct(permission2, domainSeparator));
+  });
+
+  it('hashPermissionLeaf should change with account and nonce', () => {
+    const permission = compilePolicy({
+      abi: UNISWAP_V3_ROUTER_ABI,
+      target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
+      functionName: 'exactInputSingle',
+      rules: [],
+    });
+
+    const leaf1 = hashPermissionLeaf({ permission, ...TEST_CONFIG, nonce: 0n });
+    const leaf2 = hashPermissionLeaf({ permission, ...TEST_CONFIG, nonce: 1n });
+    const leaf3 = hashPermissionLeaf({
+      permission,
+      ...TEST_CONFIG,
+      account: '0x3333333333333333333333333333333333333333',
+      nonce: 0n,
+    });
+
+    expect(leaf1).not.toBe(leaf2);
+    expect(leaf1).not.toBe(leaf3);
+    expect(leaf1).toMatch(/^0x[a-f0-9]{64}$/);
   });
 });

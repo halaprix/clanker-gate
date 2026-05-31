@@ -1,12 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { encodeFunctionData, pad, toHex } from 'viem';
+import { encodeFunctionData } from 'viem';
 import { createSimulator, simulator } from '../simulator/index.js';
 import { compilePolicy, createMerkleTreeBuilder } from '../index.js';
 import { UNISWAP_V3_ROUTER_ABI } from '../abi-registry/index.js';
 import { OP, ValidationErrorCodes } from '../types/index.js';
 import type { Permission } from '../types/index.js';
+import type { MerkleTreeConfig } from '../builder/index.js';
 
 const UNISWAP_V3_ROUTER = '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45' as const;
+
+// Deterministic test config — arbitrary fixed values consistent within tests.
+const TEST_CONFIG: MerkleTreeConfig = {
+  account: '0x1111111111111111111111111111111111111111',
+  gateAddress: '0x2222222222222222222222222222222222222222',
+  chainId: 1n,
+  nonce: 0n,
+};
 
 const exactInputABI = [{
   name: 'exactInput',
@@ -304,8 +313,8 @@ describe('Simulator', () => {
   describe('verifyProof', () => {
     it('should verify valid Merkle proof', () => {
       const sim = createSimulator();
-      const builder = createMerkleTreeBuilder();
-      
+      const builder = createMerkleTreeBuilder(TEST_CONFIG);
+
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
@@ -317,15 +326,15 @@ describe('Simulator', () => {
 
       builder.addPermission(permission);
       const { root } = builder.build();
-      const { proof } = builder.getProof(permission);
+      const { proof, leaf } = builder.getProof(permission);
 
-      expect(sim.verifyProof(root, proof, permission)).toBe(true);
+      expect(sim.verifyProof(root, proof, leaf)).toBe(true);
     });
 
     it('should reject invalid Merkle proof', () => {
       const sim = createSimulator();
-      const builder = createMerkleTreeBuilder();
-      
+      const builder = createMerkleTreeBuilder(TEST_CONFIG);
+
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
@@ -343,16 +352,22 @@ describe('Simulator', () => {
       builder.addPermission(permission);
       const { root } = builder.build();
       const { proof } = builder.getProof(permission);
+      // Compute leaf for a different permission — proof won't verify
+      const otherLeaf = builder.getProof(permission).leaf; // same tree
+      // Actually use the other permission's leaf
+      const otherBuilder = createMerkleTreeBuilder(TEST_CONFIG);
+      otherBuilder.addPermission(otherPermission);
+      const { leaf: wrongLeaf } = otherBuilder.getProof(otherPermission);
 
-      expect(sim.verifyProof(root, proof, otherPermission)).toBe(false);
+      expect(sim.verifyProof(root, proof, wrongLeaf)).toBe(false);
     });
   });
 
   describe('validate (full validation)', () => {
     it('should pass full validation with valid proof and calldata', () => {
       const sim = createSimulator();
-      const builder = createMerkleTreeBuilder();
-      
+      const builder = createMerkleTreeBuilder(TEST_CONFIG);
+
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
@@ -364,18 +379,18 @@ describe('Simulator', () => {
 
       builder.addPermission(permission);
       const { root } = builder.build();
-      const { proof } = builder.getProof(permission);
+      const { proof, leaf } = builder.getProof(permission);
 
       const calldata = createTestCalldata(BigInt('1000000000000000000'));
-      const result = sim.validate({ calldata, permission, proof, root });
+      const result = sim.validate({ calldata, permission, proof, root, leaf });
 
       expect(result.success).toBe(true);
     });
 
     it('should fail with zero root', () => {
       const sim = createSimulator();
-      const builder = createMerkleTreeBuilder();
-      
+      const builder = createMerkleTreeBuilder(TEST_CONFIG);
+
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
@@ -384,13 +399,14 @@ describe('Simulator', () => {
       });
 
       builder.addPermission(permission);
-      const { proof } = builder.getProof(permission);
+      const { proof, leaf } = builder.getProof(permission);
 
       const calldata = createTestCalldata(BigInt(1000));
       const result = sim.validate({
         calldata,
         permission,
         proof,
+        leaf,
         root: '0x0000000000000000000000000000000000000000000000000000000000000000',
       });
 
@@ -400,8 +416,7 @@ describe('Simulator', () => {
 
     it('should fail with invalid proof', () => {
       const sim = createSimulator();
-      const builder = createMerkleTreeBuilder();
-      
+
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
@@ -416,12 +431,18 @@ describe('Simulator', () => {
         rules: [],
       });
 
-      builder.addPermission(otherPermission);
-      const { root } = builder.build();
-      const { proof } = builder.getProof(otherPermission);
+      const otherBuilder = createMerkleTreeBuilder(TEST_CONFIG);
+      otherBuilder.addPermission(otherPermission);
+      const { root } = otherBuilder.build();
+      const { proof } = otherBuilder.getProof(otherPermission);
+
+      // Compute leaf for permission (not in this tree)
+      const permBuilder = createMerkleTreeBuilder(TEST_CONFIG);
+      permBuilder.addPermission(permission);
+      const { leaf } = permBuilder.getProof(permission);
 
       const calldata = createTestCalldata(BigInt(1000));
-      const result = sim.validate({ calldata, permission, proof, root });
+      const result = sim.validate({ calldata, permission, proof, root, leaf });
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe(ValidationErrorCodes.INVALID_PROOF);
@@ -429,8 +450,8 @@ describe('Simulator', () => {
 
     it('should fail with rule violation', () => {
       const sim = createSimulator();
-      const builder = createMerkleTreeBuilder();
-      
+      const builder = createMerkleTreeBuilder(TEST_CONFIG);
+
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
@@ -442,10 +463,10 @@ describe('Simulator', () => {
 
       builder.addPermission(permission);
       const { root } = builder.build();
-      const { proof } = builder.getProof(permission);
+      const { proof, leaf } = builder.getProof(permission);
 
       const calldata = createTestCalldata(BigInt('1000000000000000000'));
-      const result = sim.validate({ calldata, permission, proof, root });
+      const result = sim.validate({ calldata, permission, proof, root, leaf });
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe(ValidationErrorCodes.RULE_VIOLATION);

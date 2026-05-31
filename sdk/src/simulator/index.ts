@@ -1,6 +1,6 @@
 import type { Permission, Hex32, ValidationError, ValidationErrorCode, SimulatorResult, OpType, ValidationResult, ParamRule } from '../types/index.js';
 import { OP, ValidationErrorCodes } from '../types/index.js';
-import { verifyMerkleProof, hashPermission } from '../builder/index.js';
+import { verifyMerkleProof } from '../builder/index.js';
 
 const ZERO_BYTES32 = '0x0000000000000000000000000000000000000000000000000000000000000000' as Hex32;
 
@@ -55,26 +55,28 @@ function compareRule(op: OpType, actual: Hex32, expected: Hex32, values?: readon
 
 /**
  * Creates an off-chain simulator for validating transactions against policies.
- * 
+ *
  * The simulator replicates the on-chain validation logic exactly, allowing
  * developers to test policies before deploying them.
- * 
+ *
  * @example
  * ```typescript
  * const simulator = createSimulator();
- * 
+ *
  * // Validate calldata against a permission
  * const result = simulator.validateCalldata(calldata, permission);
  * if (!result.valid) {
  *   console.log('Rule violation:', result.error);
  * }
- * 
- * // Full validation with Merkle proof
+ *
+ * // Full validation with Merkle proof + pre-computed leaf
+ * const { proof, leaf } = builder.getProof(permission);
  * const fullResult = simulator.validate({
  *   calldata,
  *   permission,
  *   proof,
  *   root,
+ *   leaf,
  * });
  * ```
  */
@@ -82,9 +84,9 @@ export function createSimulator() {
   return {
     /**
      * Validates calldata against a permission's rules.
-     * 
+     *
      * This replicates the contract's _validateCallData logic.
-     * 
+     *
      * @param calldata - Transaction calldata (including selector)
      * @param permission - Permission to validate against
      * @returns SimulatorResult with detailed validation info
@@ -173,22 +175,26 @@ export function createSimulator() {
     },
 
     /**
-     * Verifies that a permission is included in the Merkle tree.
-     * 
-     * @param root - Merkle tree root hash
-     * @param proof - Merkle proof for the permission
-     * @param permission - Permission to verify
+     * Verifies that a pre-computed leaf is included in the Merkle tree.
+     *
+     * Use builder.getProof(permission).leaf as the leaf argument.
+     *
+     * @param root  - Merkle tree root hash
+     * @param proof - Merkle proof siblings
+     * @param leaf  - Pre-computed canonical leaf hash (from hashPermissionLeaf or builder.getProof)
      * @returns true if proof is valid
      */
-    verifyProof(root: Hex32, proof: readonly Hex32[], permission: Permission): boolean {
-      const leaf = hashPermission(permission);
+    verifyProof(root: Hex32, proof: readonly Hex32[], leaf: Hex32): boolean {
       return verifyMerkleProof(root, proof, leaf);
     },
 
     /**
      * Full validation matching the contract's validateUserOp logic.
-     * 
-     * @param params - Validation parameters
+     *
+     * The caller must supply a pre-computed canonical leaf (from builder.getProof or
+     * hashPermissionLeaf) so the simulator does not need to know the gate/chain/nonce context.
+     *
+     * @param params - Validation parameters including pre-computed leaf
      * @returns ValidationResult with success or detailed error
      */
     validate(params: {
@@ -196,6 +202,7 @@ export function createSimulator() {
       permission: Permission;
       proof: readonly Hex32[];
       root: Hex32;
+      leaf: Hex32;
     }): ValidationResult {
       if (params.root === ZERO_BYTES32) {
         return {
@@ -207,8 +214,7 @@ export function createSimulator() {
         };
       }
 
-      const leaf = hashPermission(params.permission);
-      if (!verifyMerkleProof(params.root, params.proof, leaf)) {
+      if (!verifyMerkleProof(params.root, params.proof, params.leaf)) {
         return {
           success: false,
           error: {
@@ -225,12 +231,6 @@ export function createSimulator() {
 
       return { success: true };
     },
-
-    /**
-     * Computes the leaf hash for a permission.
-     * Useful for debugging and verifying on-chain data.
-     */
-    hashPermission,
   };
 }
 
