@@ -328,7 +328,7 @@ contract CG10_4337_ValueValidation is Test {
         Permission memory permission = _buildPermission(address(0), 0x12345678, 1e18);
 
         vm.prank(address(account));
-        gate.setPolicyRootWithPermission(address(account), permission, 1);
+        gate.setPolicyRootWithPermission(address(account), permission);
 
         bytes32[] memory proof = new bytes32[](0);
 
@@ -355,7 +355,7 @@ contract CG10_4337_ValueValidation is Test {
         Permission memory permission = _buildPermission(address(0), 0x12345678, 1e18);
 
         vm.prank(address(account));
-        gate.setPolicyRootWithPermission(address(account), permission, 1);
+        gate.setPolicyRootWithPermission(address(account), permission);
 
         bytes32[] memory proof = new bytes32[](0);
 
@@ -383,7 +383,7 @@ contract CG10_4337_ValueValidation is Test {
         Permission memory permission = _buildPermission(address(0), 0x12345678, 0);
 
         vm.prank(address(account));
-        gate.setPolicyRootWithPermission(address(account), permission, 1);
+        gate.setPolicyRootWithPermission(address(account), permission);
 
         bytes32[] memory proof = new bytes32[](0);
 
@@ -408,7 +408,7 @@ contract CG10_4337_ValueValidation is Test {
         Permission memory permission = _buildPermission(address(0), 0x12345678, 0);
 
         vm.prank(address(account));
-        gate.setPolicyRootWithPermission(address(account), permission, 1);
+        gate.setPolicyRootWithPermission(address(account), permission);
 
         bytes32[] memory proof = new bytes32[](0);
 

@@ -113,15 +113,27 @@ contract ClankerGate4337 {
     /// @notice Sets the policy root by computing leaf from permission in THIS contract's context
     /// @dev This ensures address(this) in hashPermission matches during validation.
     ///      Only the account itself or its designated policyAdmin may call this (H-4).
+    ///
+    ///      L-3: The nonce parameter has been removed. The function now derives the nonce
+    ///      internally as `nonces[account] + 1` (matching setPolicyRoot's post-increment),
+    ///      so the stored root always validates without requiring callers to compute the
+    ///      correct nonce value.
+    ///
+    ///      Nonce-epoch semantics:
+    ///        - ERC-4337 (this contract) and Safe: nonce increments on EVERY setPolicyRoot /
+    ///          setPolicyRootWithPermission call. Each leaf is therefore bound to a unique epoch.
+    ///        - ERC-7579 (ClankerGate7579): assigns a fresh install-epoch nonce at install time
+    ///          and does NOT increment per setPolicyRoot call. The 7579 validator's epoch is
+    ///          controlled by reinstallation, not by per-call increments.
     /// @param account The account address
     /// @param permission The permission to compute leaf from
-    /// @param nonce The nonce to bind to (use nonces[account] before incrementing)
-    function setPolicyRootWithPermission(address account, Permission memory permission, uint256 nonce) external {
+    function setPolicyRootWithPermission(address account, Permission memory permission) external {
         _assertPolicyAdmin(account);
-        bytes32 leaf = ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
+        uint256 newNonce = nonces[account] + 1;
+        bytes32 leaf = ClankerGateCore.hashPermissionWithAccount(account, permission, newNonce);
         policyRoots[account] = leaf;
-        nonces[account]++;
-        emit PolicyRootSet(account, leaf, nonces[account]);
+        nonces[account] = newNonce;
+        emit PolicyRootSet(account, leaf, newNonce);
     }
 
     /// @notice Sets the policy admin for an account.

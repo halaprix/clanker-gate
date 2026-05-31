@@ -862,3 +862,74 @@ contract EIP1271OwnerTests is ClankerGateTest {
         assertEq(result, 0, "EIP-1271 contract owner should validate successfully");
     }
 }
+
+// ============================================================
+//       L-3: setPolicyRootWithPermission round-trip test
+// ============================================================
+
+contract SetPolicyRootWithPermissionTests is ClankerGateTest {
+    /// @notice L-3: Set policy root via permission (no caller-supplied nonce),
+    ///         then validate a matching UserOp — must return 0.
+    function test_setPolicyRootWithPermission_roundTrip() public {
+        Permission memory permission;
+        permission.target = address(0);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+        permission.validAfter = 0;
+        permission.validUntil = 0;
+        permission.chainId = 0;
+        permission.singleUse = false;
+        permission.maxValue = 0;
+
+        // nonces[account] is 0; setPolicyRootWithPermission will use newNonce=1
+        uint256 expectedNonce = gate.nonces(address(account)) + 1;
+
+        vm.prank(address(account));
+        gate.setPolicyRootWithPermission(address(account), permission);
+
+        // Stored nonce must now equal 1
+        assertEq(gate.nonces(address(account)), expectedNonce, "nonce should be 1 after set");
+
+        // Root must equal hashPermissionWithAccount(account, permission, 1)
+        bytes32 expectedLeaf = gate.computePermissionHash(address(account), permission, expectedNonce);
+        assertEq(gate.policyRoots(address(account)), expectedLeaf, "root must match leaf at nonce 1");
+
+        // Validate a matching UserOp — must succeed (return 0)
+        bytes32[] memory proof = new bytes32[](0);
+        bytes32 userOpHash = keccak256("roundtrip");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        bytes memory guardData = abi.encode(proof, permission, signature);
+
+        uint256 result = gate.validateUserOp(
+            _packUserOp(address(account), hex"12345678", guardData),
+            userOpHash
+        );
+        assertEq(result, 0, "validateUserOp must return 0 for matching permission");
+    }
+
+    /// @notice Calling setPolicyRootWithPermission twice increments nonce each time,
+    ///         and the second root validates at nonce=2 while nonce=1 no longer validates.
+    function test_setPolicyRootWithPermission_doubleSet_nonce() public {
+        Permission memory perm1;
+        perm1.target = address(0x1111);
+        perm1.selector = 0xaabbccdd;
+        perm1.rules = new ParamRule[](0);
+
+        Permission memory perm2;
+        perm2.target = address(0x2222);
+        perm2.selector = 0xdeadbeef;
+        perm2.rules = new ParamRule[](0);
+
+        vm.startPrank(address(account));
+        gate.setPolicyRootWithPermission(address(account), perm1);
+        gate.setPolicyRootWithPermission(address(account), perm2);
+        vm.stopPrank();
+
+        assertEq(gate.nonces(address(account)), 2, "nonce should be 2 after two sets");
+
+        // Only perm2 at nonce=2 is valid; perm1 at nonce=1 is invalidated
+        bytes32 expectedLeaf2 = gate.computePermissionHash(address(account), perm2, 2);
+        assertEq(gate.policyRoots(address(account)), expectedLeaf2, "root must match perm2 at nonce 2");
+    }
+}
