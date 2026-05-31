@@ -62,12 +62,16 @@ contract ClankerGate7579 {
     // ============ Storage ============
 
     /// @notice Per-account configuration
+    /// @dev `owner` is the SESSION SIGNER (signature authority for UserOps), intentionally
+    ///      distinct from `policyAdmin` (policy-mutation authority). The session signer must
+    ///      NOT be able to call `setPolicyRoot`, `setOwner`, or `setPolicyAdmin` (H-4).
     struct AccountConfig {
         bytes32 policyRoot;
         uint256 nonce;
         address owner;
         bool installed;
         address signatureValidator;
+        address policyAdmin;
     }
 
     /// @notice Mapping from account address to configuration
@@ -86,6 +90,9 @@ contract ClankerGate7579 {
 
     /// @notice Emitted when module is installed on an account
     event ModuleInstalled(address indexed account, address owner, bytes32 policyRoot, address signatureValidator);
+
+    /// @notice Emitted when an account changes its policy admin
+    event PolicyAdminSet(address indexed account, address admin);
 
     /// @notice Emitted when module is uninstalled from an account
     event ModuleUninstalled(address indexed account);
@@ -176,6 +183,9 @@ contract ClankerGate7579 {
         config.nonce = ++_installEpoch[msg.sender];
         config.signatureValidator = initSignatureValidator;
         config.installed = true;
+        // H-4: Initialize policyAdmin to the account itself (msg.sender). This separates
+        // the policy-mutation authority (policyAdmin) from the session signer (config.owner).
+        config.policyAdmin = msg.sender;
 
         emit ModuleInstalled(msg.sender, initOwner, initPolicyRoot, initSignatureValidator);
     }
@@ -207,7 +217,9 @@ contract ClankerGate7579 {
     // ============ Policy Management ============
 
     /**
-     * @notice Update policy root for an account
+     * @notice Update policy root for an account.
+     * @dev H-4: Only the account or its policyAdmin may call this. The session signer
+     *      (config.owner) is intentionally excluded so it cannot widen its own policy.
      * @param account The account to update
      * @param newRoot The new Merkle root (0 = disabled)
      */
@@ -218,7 +230,7 @@ contract ClankerGate7579 {
             revert NotInstalled();
         }
 
-        if (msg.sender != account && msg.sender != config.owner) {
+        if (msg.sender != account && msg.sender != config.policyAdmin) {
             revert Unauthorized();
         }
 
@@ -241,9 +253,12 @@ contract ClankerGate7579 {
     }
 
     /**
-     * @notice Update owner for an account
+     * @notice Update the session signer (owner) for an account.
+     * @dev H-4: Gated by account-or-policyAdmin (NOT config.owner). The current session signer
+     *      must not be able to rotate itself — that would allow a compromised signing key to
+     *      grant itself indefinite signing authority.
      * @param account The account to update
-     * @param newOwner The new owner address
+     * @param newOwner The new session signer address
      */
     function setOwner(address account, address newOwner) external {
         AccountConfig storage config = accountConfigs[account];
@@ -252,11 +267,33 @@ contract ClankerGate7579 {
             revert NotInstalled();
         }
 
-        if (msg.sender != account && msg.sender != config.owner) {
+        if (msg.sender != account && msg.sender != config.policyAdmin) {
             revert Unauthorized();
         }
 
         config.owner = newOwner;
+    }
+
+    /**
+     * @notice Set the policy admin for an account.
+     * @dev Only the account or the current policyAdmin may change the policyAdmin.
+     *      The session signer (config.owner) is excluded (H-4).
+     * @param account The account to configure
+     * @param newAdmin The new policy admin address (zero = account-only after next setPolicyRoot)
+     */
+    function setPolicyAdmin(address account, address newAdmin) external {
+        AccountConfig storage config = accountConfigs[account];
+
+        if (!config.installed) {
+            revert NotInstalled();
+        }
+
+        if (msg.sender != account && msg.sender != config.policyAdmin) {
+            revert Unauthorized();
+        }
+
+        config.policyAdmin = newAdmin;
+        emit PolicyAdminSet(account, newAdmin);
     }
 
     // ============ Validation ============
@@ -470,13 +507,20 @@ contract ClankerGate7579 {
     /**
      * @notice Get account configuration
      * @param account The account address
+     * @return owner The session signer (distinct from policyAdmin — see H-4)
+     * @return policyRoot The current Merkle root
+     * @return nonce The current install epoch nonce
+     * @return signatureValidator The custom signature validator (or zero for owner())
+     * @return installed Whether the module is installed
+     * @return configPolicyAdmin The policy admin address (zero means policyAdmin == account)
      */
     function getAccountConfig(address account) external view returns (
         address owner,
         bytes32 policyRoot,
         uint256 nonce,
         address signatureValidator,
-        bool installed
+        bool installed,
+        address configPolicyAdmin
     ) {
         AccountConfig storage config = accountConfigs[account];
         return (
@@ -484,7 +528,8 @@ contract ClankerGate7579 {
             config.policyRoot,
             config.nonce,
             config.signatureValidator,
-            config.installed
+            config.installed,
+            config.policyAdmin
         );
     }
 

@@ -126,7 +126,7 @@ contract ModuleInstallationTests is ClankerGate7579Test {
             abi.encode(owner, bytes32(uint256(1)), address(0))
         );
 
-        (address configOwner, bytes32 policyRoot, uint256 nonce, address sigValidator, bool installed) =
+        (address configOwner, bytes32 policyRoot, uint256 nonce, address sigValidator, bool installed, address configPolicyAdmin) =
             gate.getAccountConfig(address(account));
 
         assertEq(configOwner, owner);
@@ -134,6 +134,8 @@ contract ModuleInstallationTests is ClankerGate7579Test {
         assertEq(nonce, 1);
         assertEq(sigValidator, address(0));
         assertTrue(installed);
+        // H-4: policyAdmin must default to the account itself
+        assertEq(configPolicyAdmin, address(account), "policyAdmin must default to the account");
         assertTrue(gate.isModuleInstalled(address(account)));
     }
 
@@ -148,7 +150,7 @@ contract ModuleInstallationTests is ClankerGate7579Test {
         vm.prank(address(account));
         account.uninstallModule(MODULE_TYPE_VALIDATOR, address(gate), "");
 
-        (,,,, bool installed) = gate.getAccountConfig(address(account));
+        (,,,,bool installed,) = gate.getAccountConfig(address(account));
         assertFalse(installed);
         assertFalse(gate.isModuleInstalled(address(account)));
     }
@@ -162,13 +164,13 @@ contract ModuleInstallationTests is ClankerGate7579Test {
             address(gate),
             abi.encode(owner, bytes32(0), address(0))
         );
-        (,, uint256 nonce1,,) = gate.getAccountConfig(address(account));
+        (,, uint256 nonce1,,,) = gate.getAccountConfig(address(account));
         assertEq(nonce1, 1, "first install nonce should be 1");
 
         // Uninstall
         vm.prank(address(account));
         account.uninstallModule(MODULE_TYPE_VALIDATOR, address(gate), "");
-        (,,,, bool installedAfterUninstall) = gate.getAccountConfig(address(account));
+        (,,,,bool installedAfterUninstall,) = gate.getAccountConfig(address(account));
         assertFalse(installedAfterUninstall, "should not be installed after uninstall");
 
         // Reinstall — nonce should be 2 (next epoch, strictly greater)
@@ -178,7 +180,7 @@ contract ModuleInstallationTests is ClankerGate7579Test {
             address(gate),
             abi.encode(owner, bytes32(0), address(0))
         );
-        (,, uint256 nonce2,,) = gate.getAccountConfig(address(account));
+        (,, uint256 nonce2,,,) = gate.getAccountConfig(address(account));
         assertEq(nonce2, 2, "reinstall nonce should be 2 (greater than previous)");
 
         // A singleUse permission hash computed under nonce1 is different from nonce2,
@@ -216,20 +218,76 @@ contract PolicyManagementTests is ClankerGate7579Test {
         );
     }
 
-    function test_SetPolicyRoot_ByOwner() public {
-        vm.prank(owner);
+    /// @notice H-4: The session signer (config.owner) must NOT be able to set the policy root.
+    function test_sessionSignerCannotSetPolicyRoot() public {
+        vm.prank(owner); // owner is the session signer (config.owner), not policyAdmin
+        vm.expectRevert(ClankerGate7579.Unauthorized.selector);
         gate.setPolicyRoot(address(account), bytes32(uint256(1)));
+    }
 
-        (, bytes32 policyRoot, uint256 nonce,,) = gate.getAccountConfig(address(account));
-        assertEq(policyRoot, bytes32(uint256(1)));
+    /// @notice The account itself (which is also policyAdmin by default) can set the policy root.
+    function test_accountCanSetPolicyRoot() public {
+        vm.prank(address(account));
+        gate.setPolicyRoot(address(account), bytes32(uint256(2)));
+
+        (, bytes32 policyRoot, uint256 nonce,,,) = gate.getAccountConfig(address(account));
+        assertEq(policyRoot, bytes32(uint256(2)));
         assertEq(nonce, 1);
+    }
+
+    /// @notice H-4: An explicit policyAdmin (not the session signer) can set the policy root,
+    ///         and an unrelated address still cannot.
+    function test_policyAdminCanSetPolicyRoot() public {
+        address admin = address(0xAD1111);
+
+        // Account sets an explicit policyAdmin
+        vm.prank(address(account));
+        gate.setPolicyAdmin(address(account), admin);
+
+        // policyAdmin can now set the root
+        vm.prank(admin);
+        gate.setPolicyRoot(address(account), bytes32(uint256(42)));
+
+        (, bytes32 policyRoot,,,,) = gate.getAccountConfig(address(account));
+        assertEq(policyRoot, bytes32(uint256(42)));
+
+        // An unrelated address still cannot
+        address unrelated = address(0xDEAD);
+        vm.prank(unrelated);
+        vm.expectRevert(ClankerGate7579.Unauthorized.selector);
+        gate.setPolicyRoot(address(account), bytes32(uint256(99)));
+    }
+
+    /// @notice H-4: Only the account or the current policyAdmin may call setPolicyAdmin.
+    function test_policyAdminGating_setPolicyAdmin() public {
+        address admin = address(0xAD2222);
+
+        // Session signer (owner) cannot set policyAdmin
+        vm.prank(owner);
+        vm.expectRevert(ClankerGate7579.Unauthorized.selector);
+        gate.setPolicyAdmin(address(account), admin);
+
+        // Account can set policyAdmin
+        vm.prank(address(account));
+        gate.setPolicyAdmin(address(account), admin);
+
+        (,,,,,address configPolicyAdmin) = gate.getAccountConfig(address(account));
+        assertEq(configPolicyAdmin, admin);
+
+        // Now the new admin can also set policyAdmin (rotate it)
+        address admin2 = address(0xAD3333);
+        vm.prank(admin);
+        gate.setPolicyAdmin(address(account), admin2);
+
+        (,,,,,address configPolicyAdmin2) = gate.getAccountConfig(address(account));
+        assertEq(configPolicyAdmin2, admin2);
     }
 
     function test_SetPolicyRoot_ByAccount() public {
         vm.prank(address(account));
         gate.setPolicyRoot(address(account), bytes32(uint256(2)));
 
-        (, bytes32 policyRoot, uint256 nonce,,) = gate.getAccountConfig(address(account));
+        (, bytes32 policyRoot, uint256 nonce,,,) = gate.getAccountConfig(address(account));
         assertEq(policyRoot, bytes32(uint256(2)));
         assertEq(nonce, 1);
     }
@@ -272,7 +330,7 @@ contract ValidationTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("test");
@@ -302,7 +360,7 @@ contract ValidationTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes memory callData = hex"12345678000000000000000000000000000000000000000000000000000000000000007b";
@@ -333,7 +391,7 @@ contract ValidationTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes memory callData = hex"123456780000000000000000000000000000000000000000000000000000000000000064";
@@ -369,7 +427,7 @@ contract ValidationTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes memory callData = hex"1234567800000000000000000000000000000000000000000000000000000000000000c8";
@@ -405,7 +463,7 @@ contract ValidationTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes memory callData = hex"1234567800000000000000000000000000000000000000000000000000000000000003e8";
@@ -436,7 +494,7 @@ contract ValidationTests is ClankerGate7579Test {
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = bytes32(uint256(1));
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("test");
@@ -463,7 +521,7 @@ contract ValidationTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         uint256 wrongKey = 0x5678;
@@ -495,7 +553,7 @@ contract ValidationTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         vm.warp(block.timestamp + 1);
@@ -528,7 +586,7 @@ contract ValidationTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("test");
@@ -578,7 +636,7 @@ contract SignatureValidatorTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("test");
@@ -612,7 +670,7 @@ contract SignatureValidatorTests is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("test");
@@ -709,7 +767,7 @@ contract SingleUseTests7579 is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("test");
@@ -741,7 +799,7 @@ contract SingleUseTests7579 is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("test");
@@ -836,7 +894,7 @@ contract AuthorizedCallerTests7579 is ClankerGate7579Test {
 
         // Compute leaf using the on-chain helper so authorizedCaller is baked in.
         bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("test");
@@ -863,7 +921,7 @@ contract AuthorizedCallerTests7579 is ClankerGate7579Test {
         permission.authorizedCaller = address(0); // No restriction
 
         bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("test");
@@ -932,7 +990,7 @@ contract EIP1271OwnerTests7579 is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         bytes32 userOpHash = keccak256("eip1271test7579");
@@ -970,7 +1028,7 @@ contract EIP1271OwnerTests7579 is ClankerGate7579Test {
             permission.maxValue
         );
 
-        vm.prank(owner);
+        vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf);
 
         uint256 wrongKey = 0x9999;

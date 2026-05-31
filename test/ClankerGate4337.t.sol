@@ -713,6 +713,74 @@ contract AuthorizedCallerTests4337 is ClankerGateTest {
 }
 
 // ============================================================
+//               POLICY ADMIN SEPARATION TESTS (H-4)
+// ============================================================
+
+contract PolicyAdminTests4337 is ClankerGateTest {
+    /// @notice H-4: The session signer (owner()) must NOT be able to call setPolicyRoot.
+    function test_sessionSignerCannotSetPolicyRoot() public {
+        // owner is the signing key returned by account.owner(), NOT the account itself
+        vm.prank(owner);
+        vm.expectRevert(ClankerGate4337.UnauthorizedCaller.selector);
+        gate.setPolicyRoot(address(account), bytes32(uint256(1)));
+    }
+
+    /// @notice The account itself (also the default policyAdmin when none is set) can set the root.
+    function test_accountCanSetPolicyRoot() public {
+        vm.prank(address(account));
+        gate.setPolicyRoot(address(account), bytes32(uint256(42)));
+        assertEq(gate.policyRoots(address(account)), bytes32(uint256(42)));
+    }
+
+    /// @notice H-4: An explicit policyAdmin can set the root; an unrelated address cannot.
+    function test_policyAdminCanSetPolicyRoot() public {
+        address admin = address(0xAD4337);
+
+        // Account sets an explicit policyAdmin
+        vm.prank(address(account));
+        gate.setPolicyAdmin(address(account), admin);
+        assertEq(gate.policyAdmin(address(account)), admin);
+
+        // policyAdmin can now set the root
+        vm.prank(admin);
+        gate.setPolicyRoot(address(account), bytes32(uint256(99)));
+        assertEq(gate.policyRoots(address(account)), bytes32(uint256(99)));
+
+        // An unrelated address still cannot
+        address unrelated = address(0xDEAD);
+        vm.prank(unrelated);
+        vm.expectRevert(ClankerGate4337.UnauthorizedCaller.selector);
+        gate.setPolicyRoot(address(account), bytes32(uint256(0)));
+    }
+
+    /// @notice H-4: Only the account itself may call setPolicyAdmin (not even the current admin).
+    function test_onlyAccountCanSetPolicyAdmin() public {
+        address admin = address(0xAD4338);
+
+        // A random address cannot set policyAdmin
+        vm.prank(owner);
+        vm.expectRevert(ClankerGate4337.UnauthorizedCaller.selector);
+        gate.setPolicyAdmin(address(account), admin);
+
+        // Account itself can set policyAdmin
+        vm.prank(address(account));
+        gate.setPolicyAdmin(address(account), admin);
+        assertEq(gate.policyAdmin(address(account)), admin);
+
+        // Even the newly-set admin cannot further rotate policyAdmin (only account can)
+        address admin2 = address(0xAD4339);
+        vm.prank(admin);
+        vm.expectRevert(ClankerGate4337.UnauthorizedCaller.selector);
+        gate.setPolicyAdmin(address(account), admin2);
+
+        // But the account still can
+        vm.prank(address(account));
+        gate.setPolicyAdmin(address(account), admin2);
+        assertEq(gate.policyAdmin(address(account)), admin2);
+    }
+}
+
+// ============================================================
 //                    EIP-1271 OWNER TESTS (M-4)
 // ============================================================
 

@@ -51,8 +51,18 @@ contract ClankerGate4337 {
     /// @dev Uses nested mapping to prevent cross-account singleUse collision attacks
     mapping(address => mapping(bytes32 => bool)) public usedPermissionHashes;
 
+    /// @notice Mapping from account to its designated policy admin.
+    /// @dev Zero address means "no explicit admin": only the account itself may administer the policy.
+    ///      This separates the policy-mutation authority (policyAdmin) from the session signer
+    ///      (resolved via `owner()` / `_getOwner`). The session signer can NEVER call
+    ///      `setPolicyRoot` or `setPolicyRootWithPermission`.
+    mapping(address => address) public policyAdmin;
+
     /// @notice Emitted when an account sets or updates their policy root
     event PolicyRootSet(address indexed account, bytes32 root, uint256 nonce);
+
+    /// @notice Emitted when an account changes its policy admin
+    event PolicyAdminSet(address indexed account, address admin);
 
     /// @notice Emitted on successful validation
     event ValidationSucceeded(address indexed account, bytes32 permissionHash);
@@ -87,28 +97,43 @@ contract ClankerGate4337 {
     /// @dev Reverts when calldata structural checks fail (selector/length mismatch).
     error CallDataValidationFailed(uint8 errorCode);
 
-    /// @notice Sets the Merkle root for an account's policy tree
+    /// @notice Sets the Merkle root for an account's policy tree.
+    /// @dev Only the account itself or its designated policyAdmin may call this.
+    ///      The session signer (resolved via `owner()`) is intentionally NOT authorized here —
+    ///      see `_assertPolicyAdmin` and `policyAdmin` for the separation of concerns (H-4).
     /// @param account The account address to set the policy root for
     /// @param root The Merkle root of the permission tree (0 to disable)
     function setPolicyRoot(address account, bytes32 root) external {
-        // CG-22: Limit gas to prevent griefing from malicious owner() implementations
-        _assertCallerIsAccountOrOwner(account, 30000);
+        _assertPolicyAdmin(account);
         policyRoots[account] = root;
         nonces[account]++;
         emit PolicyRootSet(account, root, nonces[account]);
     }
 
     /// @notice Sets the policy root by computing leaf from permission in THIS contract's context
-    /// @dev This ensures address(this) in hashPermission matches during validation
+    /// @dev This ensures address(this) in hashPermission matches during validation.
+    ///      Only the account itself or its designated policyAdmin may call this (H-4).
     /// @param account The account address
     /// @param permission The permission to compute leaf from
     /// @param nonce The nonce to bind to (use nonces[account] before incrementing)
     function setPolicyRootWithPermission(address account, Permission memory permission, uint256 nonce) external {
-        _assertCallerIsAccountOrOwner(account, 30000);
+        _assertPolicyAdmin(account);
         bytes32 leaf = ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
         policyRoots[account] = leaf;
         nonces[account]++;
         emit PolicyRootSet(account, leaf, nonces[account]);
+    }
+
+    /// @notice Sets the policy admin for an account.
+    /// @dev Only the account itself may designate a policyAdmin. Once set, both the account
+    ///      and the policyAdmin may call `setPolicyRoot`/`setPolicyRootWithPermission`, but
+    ///      the session signer (owner()) can never do so (H-4).
+    /// @param account The account to configure
+    /// @param admin The new policy admin address (zero = reset to account-only)
+    function setPolicyAdmin(address account, address admin) external {
+        require(msg.sender == account, UnauthorizedCaller());
+        policyAdmin[account] = admin;
+        emit PolicyAdminSet(account, admin);
     }
 
     /// @notice Compute permission hash in this contract's context
@@ -242,26 +267,25 @@ contract ClankerGate4337 {
         return _packValidationData(false, permission.validUntil, permission.validAfter);
     }
 
-    /// @notice Assert caller is account or owner (with bounded gas to prevent griefing)
-    /// @param account The account to check
-    /// @param gasLimit Maximum gas to allow for owner() call
-    function _assertCallerIsAccountOrOwner(address account, uint64 gasLimit) internal {
-        if (msg.sender == account) return;
-        // CG-22: Use low-level call with bounded gas to prevent owner() griefing
-        // H-1: Use owner() (0x8da5cb5b) as the sole selector; do NOT call implementation().
-        bool success;
-        address owner;
-        assembly {
-            mstore(0x00, 0x8da5cb5b00000000000000000000000000000000000000000000000000000000)
-            success := call(gasLimit, account, 0, 0x00, 0x04, 0x00, 0x20)
-            if success {
-                owner := and(mload(0x00), 0xffffffffffffffffffffffffffffffffffffffff)
-            }
+    /// @notice Asserts that msg.sender is authorized to administer the policy for `account`.
+    /// @dev H-4: The policy admin is intentionally SEPARATE from the session signer (`owner()`).
+    ///      - If no explicit policyAdmin has been set (zero), only the account itself may act.
+    ///      - If a policyAdmin is set, both the account and that admin may act.
+    ///      The session signer (resolved via `_getOwner` / `owner()`) is deliberately excluded
+    ///      from this check so it cannot widen its own permissions.
+    function _assertPolicyAdmin(address account) internal view {
+        address admin = policyAdmin[account];
+        if (admin == address(0)) {
+            if (msg.sender != account) revert UnauthorizedCaller();
+        } else if (msg.sender != account && msg.sender != admin) {
+            revert UnauthorizedCaller();
         }
-        if (!success || msg.sender != owner) revert UnauthorizedCaller();
     }
 
-    /// @notice Gets the owner of an account
+    /// @notice Gets the owner of an account.
+    /// @dev `owner()` resolves the SIGNING authority (session signer) for UserOp validation.
+    ///      This is intentionally distinct from `policyAdmin`, which controls policy mutation
+    ///      (H-4). Do NOT use this function for policy-admin authorization.
     /// @param account The account address
     /// @return owner The owner address
     function _getOwner(address account) internal view returns (address owner) {
