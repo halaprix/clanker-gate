@@ -54,9 +54,9 @@ struct Permission {
 /// @author Clanker Protocol
 /// @custom:security-contact security@summer.fi
 /// @notice Provides common validation functions for policy-based transaction validation
-/// @dev EXECUTE_SELECTOR = 0x61461954 is the selector for execute(address,uint256,bytes)
+/// @dev EXECUTE_SELECTOR = 0xb61d27f6 is the selector for execute(address,uint256,bytes)
 library ClankerGateCore {
-    bytes4 internal constant EXECUTE_SELECTOR = 0x61461954;
+    bytes4 internal constant EXECUTE_SELECTOR = 0xb61d27f6;
 
     /// @notice Validates a permission against policy constraints
     function validatePermission(Permission memory permission) internal view returns (bool valid, uint8 errorCode) {
@@ -410,8 +410,10 @@ library ClankerGateCore {
             uint256 dataOffset = uint256(bytes32(callData[68:100]));
             // CG-12: Read dataLength from dynamic position based on dataOffset pointer,
             // not hardcoded offset. This prevents ABI layout bypass attacks.
-            uint256 dataLength = uint256(bytes32(callData[68 + dataOffset:68 + dataOffset + 32]));
-            innerDataOffset = 68 + dataOffset + 32;
+            // ABI offsets are measured from byte 4 (after the selector), so the length
+            // word is at 4+dataOffset, not 68+dataOffset.
+            uint256 dataLength = uint256(bytes32(callData[4 + dataOffset:4 + dataOffset + 32]));
+            innerDataOffset = 4 + dataOffset + 32;
             innerDataLength = dataLength;
             
             // Bounds check: ensure inner data is within calldata
@@ -459,28 +461,30 @@ library ClankerGateCore {
             
             // CG-12: Read dataLength from dynamic position based on dataOffset pointer,
             // not hardcoded offset. This prevents ABI layout bypass attacks.
+            // ABI offsets are measured from byte 4 (after the selector), so the length
+            // word is at 4+dataOffset, not 68+dataOffset.
             uint256 dataLength;
             unchecked {
-                uint256 dataLengthPos = 68 + dataOffset;
+                uint256 dataLengthPos = 4 + dataOffset;
                 if (dataLengthPos + 32 <= callData.length) {
                     assembly {
                         dataLength := mload(add(add(callData, 32), dataLengthPos))
                     }
                 }
             }
-            
+
             // Decode value from bytes 36-68
             assembly {
                 value := mload(add(add(callData, 32), 36))
             }
-            
+
             // Validate address zero-padding
             if (padding != bytes12(0)) {
                 revert InvalidAddressPadding();
             }
-            
+
             target = address(targetBytes);
-            innerDataOffset = 68 + dataOffset + 32;
+            innerDataOffset = 4 + dataOffset + 32;
             innerDataLength = dataLength;
             
             // Bounds check
