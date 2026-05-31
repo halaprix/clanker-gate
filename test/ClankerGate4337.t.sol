@@ -125,8 +125,9 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
-        assertEq(result, 1);
+        // A8: selector mismatch is a structural breach → revert CallDataValidationFailed
+        vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.CallDataValidationFailed.selector, uint8(2)));
+        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
     function test_RevertWhen_CalldataOutOfRange() public {
@@ -179,9 +180,13 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        // A7: SignatureCheckerLib returns bool; the second arg is now address(0) (no recovered signer)
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.UnauthorizedSigner.selector, owner, address(0)));
-        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        // A8: signature failure is packed in validationData (sigFailed bit = 1); does NOT revert.
+        uint256 vd = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        assertEq(vd & 1, 1, "sigFailed bit must be set for bad signature");
+
+        // A singleUse permission must NOT be marked used when signature fails.
+        bytes32 permHash = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)));
+        assertFalse(gate.usedPermissionHashes(address(account), permHash), "singleUse must not be consumed on sig failure");
     }
 
     function test_RevertWhen_InvalidProof() public {
@@ -504,8 +509,10 @@ contract SessionLifecycleTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.PermissionExpired.selector, block.timestamp, permission.validUntil));
-        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        // A8: expiry is returned in packed validationData (EntryPoint enforces), NOT a revert.
+        uint256 vd = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        assertEq(vd & 1, 0, "sigFailed bit must be 0 for good signature");
+        assertEq(uint48(vd >> 160), permission.validUntil, "validUntil must be packed correctly");
     }
 
     function test_RevertWhen_PermissionNotYetValid() public {
@@ -530,8 +537,10 @@ contract SessionLifecycleTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.PermissionNotYetValid.selector, block.timestamp, permission.validAfter));
-        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        // A8: not-yet-valid is returned in packed validationData (EntryPoint enforces), NOT a revert.
+        uint256 vd = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        assertEq(vd & 1, 0, "sigFailed bit must be 0 for good signature");
+        assertEq(uint48(vd >> 208), permission.validAfter, "validAfter must be packed correctly");
     }
 
     function test_ValidTimeWindow() public {
@@ -559,8 +568,11 @@ contract SessionLifecycleTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
-        assertEq(result, 0);
+        // A8: validUntil/validAfter are packed into the return value (sigFailed bit must be 0).
+        uint256 vd = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        assertEq(vd & 1, 0, "sigFailed bit must be 0 for valid window");
+        assertEq(uint48(vd >> 160), permission.validUntil, "validUntil packed correctly");
+        assertEq(uint48(vd >> 208), permission.validAfter, "validAfter packed correctly");
     }
 
     function test_RevertWhen_ChainIdMismatch() public {

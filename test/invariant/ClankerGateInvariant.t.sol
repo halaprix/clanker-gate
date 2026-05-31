@@ -164,12 +164,10 @@ contract ClankerGateInvariantTest is Test {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        vm.expectRevert(abi.encodeWithSelector(
-            ClankerGate4337.PermissionExpired.selector,
-            block.timestamp,
-            permission.validUntil
-        ));
-        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        // A8: expiry is returned in packed validationData (EntryPoint enforces), NOT a revert.
+        uint256 vd = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        assertEq(vd & 1, 0, "sigFailed bit must be 0 for good signature");
+        assertEq(uint48(vd >> 160), permission.validUntil, "validUntil must be packed correctly");
     }
 
     // Invariant 4: Future permissions are rejected (using test prefix for expectRevert)
@@ -195,12 +193,10 @@ contract ClankerGateInvariantTest is Test {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        vm.expectRevert(abi.encodeWithSelector(
-            ClankerGate4337.PermissionNotYetValid.selector,
-            block.timestamp,
-            permission.validAfter
-        ));
-        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        // A8: not-yet-valid is returned in packed validationData (EntryPoint enforces), NOT a revert.
+        uint256 vd = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        assertEq(vd & 1, 0, "sigFailed bit must be 0 for good signature");
+        assertEq(uint48(vd >> 208), permission.validAfter, "validAfter must be packed correctly");
     }
 
     // Invariant 5: ChainId mismatch is always rejected
@@ -353,12 +349,8 @@ contract ClankerGateInvariantTest is Test {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        // A7: SignatureCheckerLib returns bool; second arg is address(0)
-        vm.expectRevert(abi.encodeWithSelector(
-            ClankerGate4337.UnauthorizedSigner.selector,
-            owner,
-            address(0)
-        ));
-        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        // A8: signature failure is packed in validationData (sigFailed bit = 1); does NOT revert.
+        uint256 vd = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
+        assertEq(vd & 1, 1, "sigFailed bit must be set for wrong signer");
     }
 }

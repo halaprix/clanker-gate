@@ -98,6 +98,10 @@ contract ClankerGate7579 {
 
     // ============ Errors ============
 
+    // Named shift constants for _packValidationData (L-9)
+    uint256 private constant VALID_UNTIL_SHIFT = 160;
+    uint256 private constant VALID_AFTER_SHIFT  = 208;
+
     error NotInstalled();
     error AlreadyInstalled();
     error InvalidProof();
@@ -113,6 +117,8 @@ contract ClankerGate7579 {
     error InvalidUserOpFormat();
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
     error UnauthorizedCallerForPermission(address actual, address expected);
+    /// @dev Reverts when calldata structural checks fail (selector/length mismatch).
+    error CallDataValidationFailed(uint8 errorCode);
 
     // Error codes - using unique names to avoid shadowing
     uint8 constant ERR_ROOT_NOT_SET_V = 0;
@@ -286,16 +292,16 @@ contract ClankerGate7579 {
             revert InvalidProof();
         }
 
-        // Validate permission constraints
+        // Validate permission constraints.
+        // chainId mismatch (errorCode 9) is a structural breach → revert.
+        // Time-window failures (7 = not-yet-valid, 8 = expired) are returned in packed validationData
+        // so the EntryPoint can enforce the window (M-2, M-3).
         (bool permissionValid, uint8 errorCode) = ClankerGateCore.validatePermission(permission);
         if (!permissionValid) {
-            if (errorCode == 7) { // ERR_NOT_YET_VALID from Core
-                revert PermissionNotYetValid(block.timestamp, permission.validAfter);
-            } else if (errorCode == 8) { // ERR_EXPIRED from Core
-                revert PermissionExpired(block.timestamp, permission.validUntil);
-            } else {
+            if (errorCode == 9) {
                 revert ChainIdMismatch(permission.chainId, block.chainid);
             }
+            // errorCode 7 or 8: let validAfter/validUntil propagate via packed return below
         }
 
         // H-2: Enforce permission.authorizedCaller (bound to msg.sender which IS the account in the
@@ -347,16 +353,24 @@ contract ClankerGate7579 {
         (bool valid, uint8 valErrorCode, uint256 ruleIndex) =
             ClankerGateCore.validateCallDataMemoryExtended(innerCallData, permission);
         if (!valid) {
-            return _packValidationData(true, 0, 0);
+            if (valErrorCode == ERR_INVALID_LENGTH || valErrorCode == ERR_SELECTOR_MISMATCH) {
+                // Structural/policy breach → revert (D4)
+                revert CallDataValidationFailed(valErrorCode);
+            }
+            revert CallDataValidationFailed(valErrorCode);
         }
 
         // CG-07 / M-4: Unified signature check via SignatureCheckerLib.
         // Routes to EIP-1271 when expectedSigner is a contract, ECDSA when it's an EOA.
+        // Signature failure is returned as packed sigFailed bit; it does NOT revert (M-2).
         address expectedSigner = config.signatureValidator != address(0)
             ? config.signatureValidator
             : _getExpectedSigner(msg.sender);
-        if (!SignatureCheckerLib.isValidSignatureNow(expectedSigner, userOpHash, ownerSig)) {
-            revert UnauthorizedSigner(expectedSigner, address(0));
+        bool sigFailed = !SignatureCheckerLib.isValidSignatureNow(expectedSigner, userOpHash, ownerSig);
+
+        // A failed-signature op must not consume a singleUse permission (M-2).
+        if (sigFailed) {
+            return _packValidationData(true, permission.validUntil, permission.validAfter);
         }
 
         // Check singleUse permission - use account-scoped hash to prevent collision attacks
@@ -369,7 +383,7 @@ contract ClankerGate7579 {
         }
 
         emit ValidationSucceeded(msg.sender, permissionHash);
-        return 0;
+        return _packValidationData(false, permission.validUntil, permission.validAfter);
     }
 
     /**
@@ -448,7 +462,7 @@ contract ClankerGate7579 {
         uint48 validUntil,
         uint48 validAfter
     ) internal pure returns (uint256) {
-        return (uint256(validUntil) << 160) | (uint256(validAfter) << 208) | (sigFailed ? 1 : 0);
+        return (uint256(validUntil) << VALID_UNTIL_SHIFT) | (uint256(validAfter) << VALID_AFTER_SHIFT) | (sigFailed ? 1 : 0);
     }
 
     // ============ View Functions ============

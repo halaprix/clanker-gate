@@ -67,6 +67,10 @@ contract ClankerGate4337 {
     uint8 constant ERR_CHAIN_MISMATCH_V = 9;
     uint8 constant ERR_NO_OWNER_V = 10;
 
+    // Named shift constants for _packValidationData (L-9)
+    uint256 private constant VALID_UNTIL_SHIFT = 160;
+    uint256 private constant VALID_AFTER_SHIFT  = 208;
+
     // Custom errors
     error RootNotSet();
     error InvalidProof();
@@ -80,6 +84,8 @@ contract ClankerGate4337 {
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
     error UnauthorizedCaller();
     error UnauthorizedCallerForPermission(address actual, address expected);
+    /// @dev Reverts when calldata structural checks fail (selector/length mismatch).
+    error CallDataValidationFailed(uint8 errorCode);
 
     /// @notice Sets the Merkle root for an account's policy tree
     /// @param account The account address to set the policy root for
@@ -143,16 +149,16 @@ contract ClankerGate4337 {
         }
 
 
-        // Validate permission constraints
+        // Validate permission constraints.
+        // chainId mismatch (errorCode 9) is a structural breach → revert.
+        // Time-window failures (7 = not-yet-valid, 8 = expired) are returned in packed validationData
+        // so the EntryPoint can enforce the window (M-2, M-3).
         (bool permissionValid, uint8 errorCode) = ClankerGateCore.validatePermission(permission);
         if (!permissionValid) {
-            if (errorCode == 7) { // ERR_NOT_YET_VALID from Core
-                revert PermissionNotYetValid(block.timestamp, permission.validAfter);
-            } else if (errorCode == 8) { // ERR_EXPIRED from Core
-                revert PermissionExpired(block.timestamp, permission.validUntil);
-            } else {
+            if (errorCode == 9) {
                 revert ChainIdMismatch(permission.chainId, block.chainid);
             }
+            // errorCode 7 or 8: let validAfter/validUntil propagate via packed return below
         }
 
         // H-2: Enforce permission.authorizedCaller (bound to the userOp sender).
@@ -198,20 +204,26 @@ contract ClankerGate4337 {
             innerCallData = callData;
         }
 
-        (bool valid, uint8 valErrorCode, uint256 ruleIndex) = 
+        (bool valid, uint8 valErrorCode, uint256 ruleIndex) =
             ClankerGateCore.validateCallDataMemoryExtended(innerCallData, permission);
         if (!valid) {
             if (valErrorCode == ERR_INVALID_LENGTH || valErrorCode == ERR_SELECTOR_MISMATCH) {
-                return _packValidationData(true, 0, 0);
+                // Structural/policy breach → revert (D4)
+                revert CallDataValidationFailed(valErrorCode);
             }
-            // For rule violations, we could return more info but ERC-4337 expects packed data
-            return _packValidationData(true, 0, 0);
+            // Rule violations already revert inside the library; the library returns false only
+            // for ERR_INVALID_LENGTH / ERR_SELECTOR_MISMATCH (the library reverts on rule violations).
+            revert CallDataValidationFailed(valErrorCode);
         }
 
-        // Validate signature — supports ECDSA (EOA) and EIP-1271 (contract owners) via SignatureCheckerLib (M-4)
+        // Validate signature — supports ECDSA (EOA) and EIP-1271 (contract owners) via SignatureCheckerLib (M-4).
+        // Signature failure is returned as packed sigFailed bit; it does NOT revert (M-2).
         address expectedSigner = _getOwner(sender);
-        if (!SignatureCheckerLib.isValidSignatureNow(expectedSigner, userOpHash, ownerSig)) {
-            revert UnauthorizedSigner(expectedSigner, address(0));
+        bool sigFailed = !SignatureCheckerLib.isValidSignatureNow(expectedSigner, userOpHash, ownerSig);
+
+        // A failed-signature op must not consume a singleUse permission (M-2).
+        if (sigFailed) {
+            return _packValidationData(true, permission.validUntil, permission.validAfter);
         }
 
         // Check singleUse permission - use account-scoped hash to prevent collision attacks
@@ -227,7 +239,7 @@ contract ClankerGate4337 {
         }
 
         emit ValidationSucceeded(sender, permissionHash);
-        return 0;
+        return _packValidationData(false, permission.validUntil, permission.validAfter);
     }
 
     /// @notice Assert caller is account or owner (with bounded gas to prevent griefing)
@@ -280,7 +292,7 @@ contract ClankerGate4337 {
         uint48 validUntil,
         uint48 validAfter
     ) internal pure returns (uint256) {
-        return (uint256(validUntil) << 160) | (uint256(validAfter) << 208) | (sigFailed ? 1 : 0);
+        return (uint256(validUntil) << VALID_UNTIL_SHIFT) | (uint256(validAfter) << VALID_AFTER_SHIFT) | (sigFailed ? 1 : 0);
     }
 
     /// @notice Computes permission hash for off-chain Merkle tree construction

@@ -474,8 +474,9 @@ contract ValidationTests is ClankerGate7579Test {
         bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
         PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate7579.UnauthorizedSigner.selector, owner, address(0)));
-        account.callValidate(address(gate), userOp, userOpHash);
+        // A8: signature failure is packed in validationData (sigFailed bit = 1); does NOT revert.
+        uint256 vd = account.callValidate(address(gate), userOp, userOpHash);
+        assertEq(vd & 1, 1, "sigFailed bit must be set for bad signature");
     }
 
     function test_RevertWhen_PermissionExpired() public {
@@ -505,8 +506,10 @@ contract ValidationTests is ClankerGate7579Test {
         bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
         PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate7579.PermissionExpired.selector, block.timestamp, permission.validUntil));
-        account.callValidate(address(gate), userOp, userOpHash);
+        // A8: expiry is returned in packed validationData (EntryPoint enforces), NOT a revert.
+        uint256 vd = account.callValidate(address(gate), userOp, userOpHash);
+        assertEq(vd & 1, 0, "sigFailed bit must be 0 for good signature");
+        assertEq(uint48(vd >> 160), permission.validUntil, "validUntil must be packed correctly");
     }
 
     function test_RevertWhen_ChainIdMismatch() public {
@@ -977,7 +980,8 @@ contract EIP1271OwnerTests7579 is ClankerGate7579Test {
         bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
         PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate7579.UnauthorizedSigner.selector, address(wallet), address(0)));
-        account.callValidate(address(gate), userOp, userOpHash);
+        // A8: signature failure is packed in validationData (sigFailed bit = 1); does NOT revert.
+        uint256 vd = account.callValidate(address(gate), userOp, userOpHash);
+        assertEq(vd & 1, 1, "sigFailed bit must be set for bad EIP-1271 signature");
     }
 }
