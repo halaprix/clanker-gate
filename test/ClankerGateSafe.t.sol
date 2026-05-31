@@ -1064,7 +1064,7 @@ function test_ComputePermissionHash_MatchesLibrary() public {
 }
 
 // ============================================================
-//                    DELEGATECALL VALUE GUARD TESTS
+//          DELEGATECALL VALUE GUARD TESTS (post-M-6 / L-5)
 // ============================================================
 
 contract DelegatecallValueTests is ClankerGateSafeTest {
@@ -1076,6 +1076,43 @@ contract DelegatecallValueTests is ClankerGateSafeTest {
         gate.authorizeCaller(address(safe), caller);
     }
 
+    /// @notice M-6 / L-5: execTransaction is non-payable; verify the module ETH balance
+    ///         stays at 0 after a successful execution (no ETH can be stranded).
+    function test_execTransaction_isNonPayable_noStuckEth() public {
+        Permission memory permission;
+        permission.target = address(0x1111);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+        permission.validAfter = 0;
+        permission.validUntil = 0;
+        permission.chainId = 0;
+        permission.maxValue = 1 ether;
+
+        bytes32 leaf = gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
+        bytes32[] memory proof = new bytes32[](0);
+
+        vm.prank(address(safe));
+        gate.setPolicyRoot(address(safe), leaf);
+
+        bytes memory data = hex"12345678";
+
+        // Confirm module balance is zero before and after a normal execution.
+        assertEq(address(gate).balance, 0);
+        vm.prank(caller);
+        bool success = gate.execTransaction(
+            address(safe),
+            address(0x1111),
+            0,
+            data,
+            0,
+            proof,
+            permission
+        );
+        assertTrue(success);
+        assertEq(address(gate).balance, 0);
+    }
+
+    /// @notice The value PARAMETER (sourced from the Safe's balance) still enforces maxValue.
     function test_RevertWhen_DelegatecallValueExceedsMaxValue() public {
         // Whitelist target for DELEGATECALL (must be done AFTER setPolicyRoot as it resets nonce)
         vm.prank(address(safe));
@@ -1100,15 +1137,14 @@ contract DelegatecallValueTests is ClankerGateSafeTest {
 
         bytes memory data = hex"12345678";
 
-        // Call execTransaction with operation=1 (DELEGATECALL) and value=1 ether
-        // but msg.value = 1 ether > permission.maxValue (0.1 ether)
+        // value parameter = 1 ether > permission.maxValue (0.1 ether) — must revert.
+        // (No ETH is sent to the module itself; the value is sourced from the Safe.)
         vm.prank(caller);
-        vm.deal(caller, 1 ether);
         vm.expectRevert(abi.encodeWithSelector(ClankerGateSafe.ValueExceedsPermission.selector, 1 ether, 0.1 ether));
-        gate.execTransaction{value: 1 ether}(
+        gate.execTransaction(
             address(safe),
             address(0x1111),
-            0, // value parameter is 0 but msg.value is 1 ether
+            1 ether, // value parameter exceeds maxValue
             data,
             1, // DELEGATECALL
             proof,
@@ -1116,9 +1152,9 @@ contract DelegatecallValueTests is ClankerGateSafeTest {
         );
     }
 
+    /// @notice Delegatecall with a value parameter within maxValue succeeds.
     function test_Success_DelegatecallWithinMaxValue() public {
         // Create permission with maxValue = 1 ether
-        // Compute hash with nonce=2 (current nonce after initial setup + 1)
         Permission memory permission;
         permission.target = address(0x1111);
         permission.selector = 0x12345678;
@@ -1141,14 +1177,12 @@ contract DelegatecallValueTests is ClankerGateSafeTest {
 
         bytes memory data = hex"12345678";
 
-        // Call execTransaction with operation=1 (DELEGATECALL) and msg.value = 0.5 ether
-        // Should succeed since 0.5 ether <= 1 ether maxValue
+        // value parameter = 0.5 ether <= 1 ether maxValue — should succeed.
         vm.prank(caller);
-        vm.deal(caller, 1 ether);
-        bool success = gate.execTransaction{value: 0.5 ether}(
+        bool success = gate.execTransaction(
             address(safe),
             address(0x1111),
-            0,
+            0.5 ether,
             data,
             1, // DELEGATECALL
             proof,
@@ -1158,7 +1192,8 @@ contract DelegatecallValueTests is ClankerGateSafeTest {
         assertTrue(success);
     }
 
-    function test_Success_CallWithMsgValueWithinMaxValue() public {
+    /// @notice Regular CALL with value parameter within maxValue succeeds.
+    function test_Success_CallWithValueWithinMaxValue() public {
         // Create permission with maxValue = 1 ether
         Permission memory permission;
         permission.target = address(0x1111);
@@ -1178,14 +1213,12 @@ contract DelegatecallValueTests is ClankerGateSafeTest {
 
         bytes memory data = hex"12345678";
 
-        // Call execTransaction with operation=0 (CALL) and msg.value = 0.5 ether
-        // Should succeed since 0.5 ether <= 1 ether maxValue
+        // value parameter = 0.5 ether <= 1 ether maxValue — should succeed.
         vm.prank(caller);
-        vm.deal(caller, 1 ether);
-        bool success = gate.execTransaction{value: 0.5 ether}(
+        bool success = gate.execTransaction(
             address(safe),
             address(0x1111),
-            0.5 ether, // value parameter matches msg.value
+            0.5 ether, // value sourced from Safe's balance, not msg.value
             data,
             0, // CALL
             proof,

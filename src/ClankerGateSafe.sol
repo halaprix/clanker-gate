@@ -187,6 +187,8 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
     /// @param proof Merkle proof
     /// @param permission The permission authorizing this transaction
     /// @return success Whether execution succeeded
+    /// @dev M-6: Non-payable. A Safe module executes via execTransactionFromModule, which sources
+    ///      ETH from the Safe's own balance — any msg.value sent to this module would be stranded.
     function execTransaction(
         address safe,
         address to,
@@ -195,7 +197,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         uint8 operation,
         bytes32[] calldata proof,
         Permission calldata permission
-    ) external payable nonReentrant returns (bool success) {
+    ) external nonReentrant returns (bool success) {
         // Check caller is authorized
         if (!isAuthorizedCaller[safe][msg.sender]) {
             revert NotAuthorized();
@@ -208,6 +210,14 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
     /// @notice Execute a transaction without pre-authorized caller (uses proof each time)
     /// @dev This function now requires the caller to be explicitly authorized OR
     ///      the permission to include a caller field. For security, proof alone is NOT enough.
+    ///
+    ///      @custom:deprecated L-5: This function is a deprecated alias of execTransaction.
+    ///      Both functions delegate to _validateAndExecute and require the caller to be authorized.
+    ///      New integrations should call execTransaction directly. This function is retained for
+    ///      source-compatibility only and will not be removed.
+    ///
+    ///      M-6: Non-payable. A Safe module executes via execTransactionFromModule, which sources
+    ///      ETH from the Safe's own balance — any msg.value sent to this module would be stranded.
     /// @param safe The Safe to execute from
     /// @param to Target contract
     /// @param value ETH value
@@ -224,7 +234,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         uint8 operation,
         bytes32[] calldata proof,
         Permission calldata permission
-    ) external payable nonReentrant returns (bool success) {
+    ) external nonReentrant returns (bool success) {
         // SECURITY FIX: Caller must be authorized even with proof
         // Proof validates WHAT can be done, but caller must be authorized for WHO can do it
         if (!isAuthorizedCaller[safe][msg.sender]) {
@@ -258,16 +268,11 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
             revert InvalidProof();
         }
 
-        // CG-10: Validate value against permission.maxValue
+        // CG-10: Validate value against permission.maxValue.
+        // L-5/M-6: execTransaction is non-payable so msg.value is always 0;
+        // the delegatecall msg.value guard is therefore moot and has been removed.
         if (value > permission.maxValue) {
             revert ValueExceedsPermission(value, permission.maxValue);
-        }
-
-        // For DELEGATECALL (operation == 1), msg.value is preserved from the original call.
-        // The `value` parameter may be 0 but actual msg.value could be non-zero.
-        // Add an explicit guard to prevent double-spending of msg.value.
-        if (operation == 1 && msg.value > permission.maxValue) {
-            revert ValueExceedsPermission(msg.value, permission.maxValue);
         }
 
         // Validate permission constraints
