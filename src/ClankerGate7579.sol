@@ -285,9 +285,9 @@ contract ClankerGate7579 {
         // Decode UserOperation - support both formats
         bytes memory callData = _decodeCallData(userOp);
 
-        // Decode execute() wrapper
-        (address actualTarget, uint256 innerOffset, uint256 innerLength, uint256 callValue) = 
-            ClankerGateCore.decodeExecuteCallMemory(callData);
+        // Decode execute() wrapper — supports both execute(address,uint256,bytes) and ERC-7579 single-call
+        (, address actualTarget, uint256 innerOffset, uint256 innerLength, uint256 callValue) =
+            ClankerGateCore.decodeAnyExecuteMemory(callData);
 
         // CG-10: Validate callValue against permission.maxValue
         if (callValue > permission.maxValue) {

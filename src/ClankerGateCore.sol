@@ -55,8 +55,29 @@ struct Permission {
 /// @custom:security-contact security@summer.fi
 /// @notice Provides common validation functions for policy-based transaction validation
 /// @dev EXECUTE_SELECTOR = 0xb61d27f6 is the selector for execute(address,uint256,bytes)
+///      EXEC7579_SELECTOR = 0xe9ae5c53 is the selector for ERC-7579 execute(bytes32,bytes)
 library ClankerGateCore {
     bytes4 internal constant EXECUTE_SELECTOR = 0xb61d27f6;
+
+    /// @dev ERC-7579 execute(bytes32 mode, bytes executionCalldata) selector
+    bytes4 internal constant EXEC7579_SELECTOR = 0xe9ae5c53;
+
+    // ERC-7579 CallType constants (byte[0] of mode)
+    bytes1 internal constant CALLTYPE_SINGLE   = 0x00;
+    bytes1 internal constant CALLTYPE_BATCH    = 0x01;
+    bytes1 internal constant CALLTYPE_STATIC   = 0xfe;
+    bytes1 internal constant CALLTYPE_DELEGATE = 0xff;
+
+    // ERC-7579 ExecType constants (byte[1] of mode)
+    bytes1 internal constant EXECTYPE_DEFAULT = 0x00;
+    bytes1 internal constant EXECTYPE_TRY     = 0x01;
+
+    // ERC-7579 single-call executionCalldata field offsets
+    uint256 internal constant EXEC_SINGLE_VALUE_OFFSET    = 20;  // value starts at byte 20 (after 20-byte target)
+    uint256 internal constant EXEC_SINGLE_CALLDATA_OFFSET = 52;  // inner calldata starts at byte 52
+
+    /// @dev Which decoding path was taken
+    enum ExecKind { Direct, Execute4337, Execute7579Single }
 
     /// @notice Validates a permission against policy constraints
     function validatePermission(Permission memory permission) internal view returns (bool valid, uint8 errorCode) {
@@ -499,6 +520,90 @@ library ClankerGateCore {
         }
     }
 
+    /// @notice Unified decoder: recognises execute(address,uint256,bytes) AND
+    ///         ERC-7579 execute(bytes32,bytes) single-call mode.
+    ///         Batch, delegatecall, staticcall, and try-execType are rejected.
+    /// @param callData The calldata to decode (in memory)
+    /// @return kind      Which format was found
+    /// @return target    Target address (address(0) for Direct)
+    /// @return innerOffset  Byte offset of inner calldata within `callData`
+    /// @return innerLength  Byte length of inner calldata
+    /// @return value     ETH value (0 for Direct)
+    function decodeAnyExecuteMemory(bytes memory callData)
+        internal pure
+        returns (ExecKind kind, address target, uint256 innerOffset, uint256 innerLength, uint256 value)
+    {
+        if (callData.length < 4) {
+            return (ExecKind.Direct, address(0), 0, callData.length, 0);
+        }
+
+        bytes4 selector;
+        assembly { selector := mload(add(callData, 32)) }
+
+        if (selector == EXECUTE_SELECTOR) {
+            // Reuse the existing execute(address,uint256,bytes) memory decoder.
+            (target, innerOffset, innerLength, value) = decodeExecuteCallMemory(callData);
+            // decodeExecuteCallMemory returns address(0) when the payload is too short
+            // or not an execute() call. Treat non-zero target as Execute4337.
+            if (target == address(0)) {
+                return (ExecKind.Direct, address(0), 0, callData.length, 0);
+            }
+            return (ExecKind.Execute4337, target, innerOffset, innerLength, value);
+        }
+
+        if (selector == EXEC7579_SELECTOR) {
+            // Need at least: 4 (selector) + 32 (mode) + 32 (offset word) = 68 bytes
+            if (callData.length < 68) revert InvalidExecuteEncoding();
+
+            bytes32 mode;
+            uint256 execOffset;
+            assembly {
+                mode       := mload(add(callData, 36))   // bytes [4:36]  — mode (static bytes32)
+                execOffset := mload(add(callData, 68))   // bytes [36:68] — ABI offset to executionCalldata
+            }
+
+            // byte[0] = callType, byte[1] = execType (per ERC-7579 / LibERC7579)
+            bytes1 callType = bytes1(mode);          // leftmost byte
+            bytes1 execType = bytes1(mode << 8);     // second byte
+
+            if (execType != EXECTYPE_DEFAULT) revert UnsupportedExecType(execType);
+            if (callType == CALLTYPE_BATCH    ||
+                callType == CALLTYPE_STATIC   ||
+                callType == CALLTYPE_DELEGATE) {
+                revert UnsupportedCallType(callType);
+            }
+            if (callType != CALLTYPE_SINGLE) revert UnsupportedCallType(callType);
+
+            // executionCalldata length word is at position: 4 + execOffset
+            uint256 lenPos = 4 + execOffset;
+            if (lenPos + 32 > callData.length) revert InvalidExecuteEncoding();
+
+            uint256 execLen;
+            assembly { execLen := mload(add(add(callData, 32), lenPos)) }
+
+            uint256 execDataStart = lenPos + 32;
+            if (execDataStart + execLen > callData.length) revert InvalidExecuteEncoding();
+            if (execLen < EXEC_SINGLE_CALLDATA_OFFSET) revert InvalidExecutionCalldata();
+
+            uint256 t;
+            uint256 v;
+            assembly {
+                // target: top 20 bytes of the first word in executionCalldata
+                t := shr(96, mload(add(add(callData, 32), execDataStart)))
+                // value: the 32-byte word starting at execDataStart + 20
+                v := mload(add(add(callData, 32), add(execDataStart, EXEC_SINGLE_VALUE_OFFSET)))
+            }
+            target      = address(uint160(t));
+            value       = v;
+            innerOffset = execDataStart + EXEC_SINGLE_CALLDATA_OFFSET;
+            innerLength = execLen - EXEC_SINGLE_CALLDATA_OFFSET;
+            return (ExecKind.Execute7579Single, target, innerOffset, innerLength, value);
+        }
+
+        // Unknown selector — treat as a direct call (no unwrapping)
+        return (ExecKind.Direct, address(0), 0, callData.length, 0);
+    }
+
     // Errors
     error CalldataOutOfRange(uint256 offset);
     error RuleViolation(uint256 ruleIndex, uint8 op, bytes32 expected, bytes32 actual);
@@ -510,4 +615,7 @@ library ClankerGateCore {
     error InvalidExecuteEncoding();
     error InvalidAddressPadding();
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
+    error UnsupportedCallType(bytes1 callType);
+    error UnsupportedExecType(bytes1 execType);
+    error InvalidExecutionCalldata();
 }
