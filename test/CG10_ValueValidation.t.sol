@@ -7,7 +7,7 @@ import {ClankerGateCore, ParamRule, Permission} from "../src/ClankerGateCore.sol
 import {ClankerGateSafe} from "../src/ClankerGateSafe.sol";
 import {ClankerGate4337} from "../src/ClankerGate4337.sol";
 import {ClankerGate7579} from "../src/ClankerGate7579.sol";
-import {IEntryPoint, IAccount} from "../src/interfaces/IERC4337.sol";
+import {PackedUserOperation, IEntryPoint, IAccount} from "../src/interfaces/IERC4337.sol";
 import {IERC7579Account, MODULE_TYPE_VALIDATOR} from "../src/interfaces/IERC7579.sol";
 
 // ============================================================
@@ -108,11 +108,10 @@ contract Mock7579Account is IERC7579Account {
 contract CallerWithValue {
     function callValidateUserOp4337(
         address gate,
-        bytes calldata userOp,
-        bytes32 userOpHash,
-        bytes calldata guardData
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash
     ) external payable returns (uint256) {
-        return ClankerGate4337(gate).validateUserOp(userOp, userOpHash, guardData);
+        return ClankerGate4337(gate).validateUserOp(userOp, userOpHash);
     }
 
     function callValidateUserOp7579(
@@ -295,20 +294,12 @@ contract CG10_4337_ValueValidation is Test {
         callerContract = new CallerWithValue();
     }
 
-    function _encodeUserOp(address sender, bytes memory callData) internal pure returns (bytes memory) {
-        return abi.encode(
-            sender,     // address sender
-            uint256(0),  // uint256 nonce
-            hex"",       // bytes initCode
-            callData,    // bytes callData
-            uint256(0),  // uint256 callGasLimit
-            uint256(0),  // uint256 verificationGasLimit
-            uint256(0),  // uint256 preVerificationGas
-            uint256(0),  // uint256 maxFeePerGas
-            uint256(0),  // uint256 maxPriorityFeePerGas
-            hex"",       // bytes paymasterAndData
-            hex""        // bytes signature
-        );
+    function _packUserOp(address sender, bytes memory callData, bytes memory sigField)
+        internal pure returns (PackedUserOperation memory u)
+    {
+        u.sender = sender;
+        u.callData = callData;
+        u.signature = sigField;
     }
 
     function _buildPermission(address target, bytes4 selector, uint256 maxValue)
@@ -346,14 +337,13 @@ contract CG10_4337_ValueValidation is Test {
         bytes memory signature = _signUserOp(userOpHash);
 
         bytes memory guardData = abi.encode(proof, permission, signature);
-        bytes memory userOpBytes = _encodeUserOp(address(account), hex"12345678");
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", guardData);
 
         // Call with msg.value = 1e18 (equal to maxValue)
         uint256 result = callerContract.callValidateUserOp4337{value: 1e18}(
             address(gate),
-            userOpBytes,
-            userOpHash,
-            guardData
+            userOp,
+            userOpHash
         );
         assertEq(result, 0);
     }
@@ -374,15 +364,14 @@ contract CG10_4337_ValueValidation is Test {
         bytes memory signature = _signUserOp(userOpHash);
 
         bytes memory guardData = abi.encode(proof, permission, signature);
-        bytes memory userOpBytes = _encodeUserOp(address(account), hex"12345678");
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", guardData);
 
-        // Call with msg.value = 2e18. Since callData has no execute() wrapper, callValue=0 
+        // Call with msg.value = 2e18. Since callData has no execute() wrapper, callValue=0
         // and value check passes. This test just verifies basic validation works.
         uint256 result = callerContract.callValidateUserOp4337{value: 2e18}(
             address(gate),
-            userOpBytes,
-            userOpHash,
-            guardData
+            userOp,
+            userOpHash
         );
         assertEq(result, 0);
     }
@@ -403,15 +392,14 @@ contract CG10_4337_ValueValidation is Test {
         bytes memory signature = _signUserOp(userOpHash);
 
         bytes memory guardData = abi.encode(proof, permission, signature);
-        bytes memory userOpBytes = _encodeUserOp(address(account), hex"12345678");
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", guardData);
 
-        // Call with msg.value = 1. Since callData has no execute() wrapper, callValue=0 
+        // Call with msg.value = 1. Since callData has no execute() wrapper, callValue=0
         // and value check passes. This test just verifies basic validation works.
         uint256 result = callerContract.callValidateUserOp4337{value: 1}(
             address(gate),
-            userOpBytes,
-            userOpHash,
-            guardData
+            userOp,
+            userOpHash
         );
         assertEq(result, 0);
     }
@@ -429,13 +417,12 @@ contract CG10_4337_ValueValidation is Test {
         bytes memory signature = _signUserOp(userOpHash);
 
         bytes memory guardData = abi.encode(proof, permission, signature);
-        bytes memory userOpBytes = _encodeUserOp(address(account), hex"12345678");
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", guardData);
 
         uint256 result = callerContract.callValidateUserOp4337{value: 0}(
             address(gate),
-            userOpBytes,
-            userOpHash,
-            guardData
+            userOp,
+            userOpHash
         );
         assertEq(result, 0);
     }

@@ -2,7 +2,7 @@
 pragma solidity 0.8.35;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {IEntryPoint, IAccount} from "./interfaces/IERC4337.sol";
+import {PackedUserOperation, IEntryPoint, IAccount} from "./interfaces/IERC4337.sol";
 import {ClankerGateCore, Permission, ParamRule, DOMAIN_SEPARATOR_TYPEHASH, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH, ERR_RULE_VIOLATION} from "./ClankerGateCore.sol";
 
 /// @title ClankerGate4337 - ERC-4337 Validator Module
@@ -116,56 +116,34 @@ contract ClankerGate4337 {
         return ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
     }
 
-    /// @notice Validates a UserOperation against the account's policy
-    /// @param userOp ABI-encoded UserOperation (sender, nonce, initCode, callData, gas limits, fees, paymasterAndData, signature)
-    /// @param userOpHash Hash of the UserOperation
-    /// @param guardData ABI-encoded (bytes32[] proof, Permission permission, bytes signature)
+    /// @notice Validates a UserOperation against the account's policy.
+    /// @dev The userOp.signature field contains abi.encode(proof, permission, ownerSig).
+    ///      The userOpHash is computed by the EntryPoint over the userOp (excluding the
+    ///      signature field); this validator trusts that hash (M-1). The ownerSig
+    ///      authenticates userOpHash and must be produced by the account's owner.
+    /// @param userOp ERC-4337 v0.7 PackedUserOperation; gate reads sender, callData, signature
+    /// @param userOpHash Hash of the UserOperation computed by the EntryPoint
     /// @return validationData 0 for valid, packed validation data for invalid
     function validateUserOp(
-        bytes calldata userOp,
-        bytes32 userOpHash,
-        bytes calldata guardData
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash
     ) external returns (uint256 validationData) {
-        // Gas optimization: extract only sender and callData via assembly
-        // instead of full abi.decode which allocates memory for all 11 fields
-        address sender;
-        bytes memory callData;
-        assembly {
-            // sender is at offset 0 in the ABI-encoded tuple
-            sender := calldataload(userOp.offset)
-            
-            // callData is the 4th field (index 3). In ABI encoding:
-            // offset 0: sender (address, 32 bytes padded)
-            // offset 32: nonce (uint256)
-            // offset 64: initCode offset (uint256 pointer)
-            // offset 96: callData offset (uint256 pointer)
-            // The callData offset points to: length(32) + data
-            let cdOffset := calldataload(add(userOp.offset, 96))
-            let cdLen := calldataload(add(userOp.offset, cdOffset))
-            
-            // Allocate memory for callData
-            callData := mload(0x40)
-            mstore(callData, cdLen)
-            
-            // Copy callData bytes from calldata to memory
-            calldatacopy(add(callData, 32), add(userOp.offset, add(cdOffset, 32)), cdLen)
-            
-            // Update free memory pointer (round up cdLen to 32-byte boundary)
-            let roundedLen := and(add(cdLen, 31), not(31))
-            mstore(0x40, add(add(callData, 32), roundedLen))
-        }
+        address sender = userOp.sender;
+        bytes memory callData = userOp.callData;
+
         bytes32 root = policyRoots[sender];
-        
+
         if (root == bytes32(0)) {
             revert RootNotSet();
         }
 
-        (bytes32[] memory proof, Permission memory permission, bytes memory sig) =
-            abi.decode(guardData, (bytes32[], Permission, bytes));
+        (bytes32[] memory proof, Permission memory permission, bytes memory ownerSig) =
+            abi.decode(userOp.signature, (bytes32[], Permission, bytes));
 
         if (!ClankerGateCore.verifyMerkleProof(root, proof, permission, sender, nonces[sender])) {
             revert InvalidProof();
         }
+
 
         // Validate permission constraints
         (bool permissionValid, uint8 errorCode) = ClankerGateCore.validatePermission(permission);
@@ -233,7 +211,7 @@ contract ClankerGate4337 {
         }
 
         // Validate signature
-        address signer = userOpHash.recover(sig);
+        address signer = userOpHash.recover(ownerSig);
         address owner = _getOwner(sender);
         if (signer != owner) {
             revert UnauthorizedSigner(owner, signer);

@@ -6,7 +6,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ClankerGate4337} from "../src/ClankerGate4337.sol";
 import {ClankerGateCore, ParamRule, Permission} from "../src/ClankerGateCore.sol";
-import {IEntryPoint, IAccount} from "../src/interfaces/IERC4337.sol";
+import {PackedUserOperation, IEntryPoint, IAccount} from "../src/interfaces/IERC4337.sol";
 
 contract MockAccount is IAccount {
     address public owner;
@@ -45,21 +45,14 @@ contract ClankerGateTest is Test {
         account.setGate(address(gate));
     }
 
-    /// @notice Encode UserOperation as bytes for validateUserOp (which now takes bytes)
-    function _encodeUserOp(IEntryPoint.UserOperation memory userOp) internal pure returns (bytes memory) {
-        return abi.encode(
-            userOp.sender,
-            userOp.nonce,
-            userOp.initCode,
-            userOp.callData,
-            userOp.callGasLimit,
-            userOp.verificationGasLimit,
-            userOp.preVerificationGas,
-            userOp.maxFeePerGas,
-            userOp.maxPriorityFeePerGas,
-            userOp.paymasterAndData,
-            userOp.signature
-        );
+    /// @notice Build a PackedUserOperation for gate.validateUserOp (v0.7 2-arg form).
+    /// accountGasLimits/gasFees/nonce etc. can be zero — gate only reads sender/callData/signature.
+    function _packUserOp(address sender, bytes memory callData, bytes memory sigField)
+        internal pure returns (PackedUserOperation memory u)
+    {
+        u.sender = sender;
+        u.callData = callData;
+        u.signature = sigField;
     }
 }
 
@@ -76,15 +69,12 @@ contract CoreValidationTests is ClankerGateTest {
     }
 
     function test_RevertWhen_RootNotSet() public {
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-
         bytes32 userOpHash = keccak256("test");
         bytes memory guardData =
             abi.encode(new bytes32[](0), Permission(address(0), bytes4(0), 0, 0, false, 0, 0, address(0), new ParamRule[](0)), hex"");
 
         vm.expectRevert(ClankerGate4337.RootNotSet.selector);
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), hex"", guardData), userOpHash);
     }
 
     function test_ValidateUserOp_ZeroRules() public {
@@ -107,13 +97,9 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
         assertEq(result, 0);
     }
 
@@ -137,13 +123,9 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
         assertEq(result, 1);
     }
 
@@ -168,14 +150,10 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.CalldataOutOfRange.selector, 1004));
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
     function test_RevertWhen_UnauthorizedSigner() public {
@@ -199,15 +177,11 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         address wrongSigner = vm.addr(wrongKey);
         vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.UnauthorizedSigner.selector, owner, wrongSigner));
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
     function test_RevertWhen_InvalidProof() public {
@@ -231,14 +205,10 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(ClankerGate4337.InvalidProof.selector);
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
     function test_ValidateRule_EQ_Pass() public {
@@ -262,13 +232,10 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678000000000000000000000000000000000000000000000000000000000000007b";
-
+        bytes memory callData = hex"12345678000000000000000000000000000000000000000000000000000000000000007b";
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash);
         assertEq(result, 0);
     }
 
@@ -293,13 +260,10 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"123456780000000000000000000000000000000000000000000000000000000000000064";
-
+        bytes memory callData = hex"123456780000000000000000000000000000000000000000000000000000000000000064";
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash);
         assertEq(result, 0);
     }
 
@@ -324,10 +288,7 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"1234567800000000000000000000000000000000000000000000000000000000000002bc"; // 700 > 100
-
+        bytes memory callData = hex"1234567800000000000000000000000000000000000000000000000000000000000002bc"; // 700 > 100
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(
@@ -335,7 +296,7 @@ contract CoreValidationTests is ClankerGateTest {
                 ClankerGateCore.RuleViolation.selector, 0, 4, bytes32(uint256(100)), bytes32(uint256(700))
             )
         );
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash);
     }
 
     function test_ValidateRule_IN_Pass() public {
@@ -364,13 +325,10 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"1234567800000000000000000000000000000000000000000000000000000000000000c8"; // 200 in allowed
-
+        bytes memory callData = hex"1234567800000000000000000000000000000000000000000000000000000000000000c8"; // 200 in allowed
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash);
         assertEq(result, 0);
     }
 
@@ -400,14 +358,11 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"1234567800000000000000000000000000000000000000000000000000000000000003e8";
-
+        bytes memory callData = hex"1234567800000000000000000000000000000000000000000000000000000000000003e8";
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.ValueNotInSet.selector, 0, bytes32(uint256(1000)), allowedValues));
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash);
     }
 
     function test_ValidateRule_IN_MultipleAddresses() public {
@@ -440,9 +395,6 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        
         bytes memory callData = new bytes(36);
         callData[0] = bytes1(0x12);
         callData[1] = bytes1(0x34);
@@ -451,11 +403,9 @@ contract CoreValidationTests is ClankerGateTest {
         assembly {
             mstore(add(add(callData, 32), 4), addr2)
         }
-        userOp.callData = callData;
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash);
         assertEq(result, 0);
     }
 
@@ -480,16 +430,12 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.prank(address(account));
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
         assertEq(result, 0);
-        
+
         bytes32 accountPermissionHash = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)));
         assertTrue(gate.usedPermissionHashes(address(account), accountPermissionHash));
     }
@@ -515,20 +461,16 @@ contract CoreValidationTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.prank(address(account));
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
         assertEq(result, 0);
 
         bytes32 accountPermissionHash = gate.computePermissionHash(address(account), permission, gate.nonces(address(account)));
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.PermissionAlreadyUsed.selector, accountPermissionHash));
         vm.prank(address(account));
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 }
 
@@ -560,14 +502,10 @@ contract SessionLifecycleTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.PermissionExpired.selector, block.timestamp, permission.validUntil));
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
     function test_RevertWhen_PermissionNotYetValid() public {
@@ -590,14 +528,10 @@ contract SessionLifecycleTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.PermissionNotYetValid.selector, block.timestamp, permission.validAfter));
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
     function test_ValidTimeWindow() public {
@@ -623,13 +557,9 @@ contract SessionLifecycleTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
         assertEq(result, 0);
     }
 
@@ -653,14 +583,10 @@ contract SessionLifecycleTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.ChainIdMismatch.selector, permission.chainId, block.chainid));
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
     function test_ChainIdWildcard_ZeroMeansAllChains() public {
@@ -683,13 +609,9 @@ contract SessionLifecycleTests is ClankerGateTest {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = hex"12345678";
-
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
         assertEq(result, 0);
     }
 
@@ -713,23 +635,6 @@ contract SessionLifecycleTests is ClankerGateTest {
 // ============================================================
 
 contract AuthorizedCallerTests4337 is ClankerGateTest {
-    /// @notice Build a minimal valid UserOperation bytes for the given sender and callData.
-    function _buildUserOp(address sender, bytes memory callData) internal pure returns (bytes memory) {
-        return abi.encode(
-            sender,
-            uint256(0),
-            bytes(""),
-            callData,
-            uint256(0),
-            uint256(0),
-            uint256(0),
-            uint256(0),
-            uint256(0),
-            bytes(""),
-            bytes("")
-        );
-    }
-
     /// @notice H-2: A permission whose authorizedCaller does NOT match the account sender
     /// must revert UnauthorizedCallerForPermission.
     function test_authorizedCaller_enforced() public {
@@ -764,7 +669,7 @@ contract AuthorizedCallerTests4337 is ClankerGateTest {
                 nonMatchingCaller
             )
         );
-        gate.validateUserOp(_buildUserOp(address(account), hex"12345678"), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
     /// @notice H-2: A permission with authorizedCaller == address(0) must allow any sender
@@ -790,7 +695,7 @@ contract AuthorizedCallerTests4337 is ClankerGateTest {
         bytes memory signature = abi.encodePacked(r, s, v);
         bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
 
-        uint256 result = gate.validateUserOp(_buildUserOp(address(account), hex"12345678"), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
         assertEq(result, 0, "zero authorizedCaller must allow any sender");
     }
 }

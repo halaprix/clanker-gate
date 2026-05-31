@@ -4,7 +4,7 @@ pragma solidity 0.8.35;
 import {Test} from "forge-std/Test.sol";
 import {ClankerGate4337} from "../src/ClankerGate4337.sol";
 import {ClankerGateCore, Permission, ParamRule} from "../src/ClankerGateCore.sol";
-import {IEntryPoint, IAccount} from "../src/interfaces/IERC4337.sol";
+import {PackedUserOperation, IEntryPoint, IAccount} from "../src/interfaces/IERC4337.sol";
 
 /// Harness to expose the internal library decode for direct testing.
 contract CoreHarness {
@@ -157,7 +157,7 @@ contract AuditVerify is Test {
         bytes memory wrapped = abi.encodeWithSignature(
             "execute(address,uint256,bytes)", ROUTER, uint256(0), innerCompliant
         );
-        uint256 vd1 = gate.validateUserOp(_userOp(address(account), wrapped), userOpHash, guardData);
+        uint256 vd1 = gate.validateUserOp(_packUserOp(address(account), wrapped, guardData), userOpHash);
         assertEq(vd1, 0, "WRAPPED compliant call passes (returns 0 = valid)");
 
         // (2) Direct (unwrapped) inner call also passes — unchanged behaviour.
@@ -168,7 +168,7 @@ contract AuditVerify is Test {
         (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(ownerKey, userOpHash);
         bytes memory sig2 = abi.encodePacked(r2, s2, v2);
         bytes memory guardData2 = abi.encode(proof, p, sig2);
-        uint256 vd2 = gate.validateUserOp(_userOp(address(account), innerCompliant), userOpHash, guardData2);
+        uint256 vd2 = gate.validateUserOp(_packUserOp(address(account), innerCompliant, guardData2), userOpHash);
         assertEq(vd2, 0, "direct (unwrapped) inner call passes");
     }
 
@@ -195,7 +195,7 @@ contract AuditVerify is Test {
         bytes memory inner = abi.encodeWithSelector(INNER_SEL, uint256(0.5 ether));
 
         // After the fix: _getOwner returns the real owner (not IMPL=0xBEEF), so validation succeeds.
-        uint256 result = gate.validateUserOp(_userOp(address(proxyAcct), inner), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(proxyAcct), inner, guardData), userOpHash);
         assertEq(result, 0, "owner-signed op must pass (0 = valid)");
     }
 
@@ -235,14 +235,16 @@ contract AuditVerify is Test {
         vm.expectRevert(
             abi.encodeWithSelector(ClankerGate4337.AccountHasNoOwner.selector, address(noOwnerAcct))
         );
-        gate.validateUserOp(_userOp(address(noOwnerAcct), callData), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(noOwnerAcct), callData, guardData), userOpHash);
     }
 
-    function _userOp(address sender, bytes memory callData) internal pure returns (bytes memory) {
-        return abi.encode(
-            sender, uint256(0), bytes(""), callData,
-            uint256(0), uint256(0), uint256(0), uint256(0), uint256(0),
-            bytes(""), bytes("")
-        );
+    /// @notice Build a PackedUserOperation for gate.validateUserOp (v0.7 2-arg form).
+    /// Gate only reads sender/callData/signature; other fields may be zero.
+    function _packUserOp(address sender, bytes memory callData, bytes memory sigField)
+        internal pure returns (PackedUserOperation memory u)
+    {
+        u.sender = sender;
+        u.callData = callData;
+        u.signature = sigField;
     }
 }

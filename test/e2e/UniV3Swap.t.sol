@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IEntryPoint, IAccount} from "../../src/interfaces/IERC4337.sol";
+import {PackedUserOperation, IEntryPoint, IAccount} from "../../src/interfaces/IERC4337.sol";
 import {ClankerGate4337} from "../../src/ClankerGate4337.sol";
 import {ClankerGateCore, ParamRule, Permission} from "../../src/ClankerGateCore.sol";
 
@@ -49,21 +49,14 @@ contract UniV3SwapTest is Test {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
 
-    /// @notice Encode UserOperation as bytes for validateUserOp (which now takes bytes)
-    function _encodeUserOp(IEntryPoint.UserOperation memory userOp) internal pure returns (bytes memory) {
-        return abi.encode(
-            userOp.sender,
-            userOp.nonce,
-            userOp.initCode,
-            userOp.callData,
-            userOp.callGasLimit,
-            userOp.verificationGasLimit,
-            userOp.preVerificationGas,
-            userOp.maxFeePerGas,
-            userOp.maxPriorityFeePerGas,
-            userOp.paymasterAndData,
-            userOp.signature
-        );
+    /// @notice Build a PackedUserOperation for gate.validateUserOp (v0.7 2-arg form).
+    /// Gate only reads sender/callData/signature; other fields may be zero.
+    function _packUserOp(address sender, bytes memory callData, bytes memory sigField)
+        internal pure returns (PackedUserOperation memory u)
+    {
+        u.sender = sender;
+        u.callData = callData;
+        u.signature = sigField;
     }
 
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
@@ -145,9 +138,7 @@ contract UniV3SwapTest is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        IEntryPoint.UserOperation memory userOp = _buildUserOp(address(account), swapCalldata);
-
-        uint256 validationData = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 validationData = gate.validateUserOp(_packUserOp(address(account), swapCalldata, guardData), userOpHash);
         assertEq(validationData, 0, "Validation should pass");
 
         // Note: Actual swap execution skipped in fork test
@@ -213,9 +204,7 @@ contract UniV3SwapTest is Test {
             bytes32(uint256(0.5 ether)),
             bytes32(uint256(1 ether))
         ));
-        
-        IEntryPoint.UserOperation memory userOp = _buildUserOp(address(account), swapCalldata);
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), swapCalldata, guardData), userOpHash);
     }
 
     function test_ExactInputSingle_RevertWhen_WrongTokenIn() public {
@@ -268,9 +257,7 @@ contract UniV3SwapTest is Test {
             bytes32(uint256(uint160(WETH))),
             bytes32(uint256(uint160(USDC)))
         ));
-        
-        IEntryPoint.UserOperation memory userOp = _buildUserOp(address(account), swapCalldata);
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), swapCalldata, guardData), userOpHash);
     }
 
     function test_SingleUsePermission_WorksOnce() public {
@@ -322,10 +309,8 @@ contract UniV3SwapTest is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        IEntryPoint.UserOperation memory userOp = _buildUserOp(address(account), swapCalldata);
-        
         vm.prank(address(account));
-        uint256 result = gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), swapCalldata, guardData), userOpHash);
         assertEq(result, 0);
 
         bytes32 accountPermissionHash = gate.computePermissionHash(address(account), permission, 1);
@@ -333,22 +318,7 @@ contract UniV3SwapTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.PermissionAlreadyUsed.selector, accountPermissionHash));
         vm.prank(address(account));
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), swapCalldata, guardData), userOpHash);
     }
 
-    function _buildUserOp(address sender, bytes memory callData) internal pure returns (IEntryPoint.UserOperation memory) {
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = sender;
-        userOp.nonce = 0;
-        userOp.initCode = "";
-        userOp.callData = callData;
-        userOp.callGasLimit = 500000;
-        userOp.verificationGasLimit = 500000;
-        userOp.preVerificationGas = 100000;
-        userOp.maxFeePerGas = 30 gwei;
-        userOp.maxPriorityFeePerGas = 2 gwei;
-        userOp.paymasterAndData = "";
-        userOp.signature = "";
-        return userOp;
-    }
 }

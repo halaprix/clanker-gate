@@ -4,7 +4,7 @@ pragma solidity 0.8.35;
 import {Test, console} from "forge-std/Test.sol";
 import {ClankerGate4337} from "../src/ClankerGate4337.sol";
 import {ClankerGateCore, ParamRule, Permission} from "../src/ClankerGateCore.sol";
-import {IEntryPoint} from "../src/interfaces/IERC4337.sol";
+import {PackedUserOperation, IEntryPoint} from "../src/interfaces/IERC4337.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
@@ -48,21 +48,14 @@ contract GasBenchmark is Test {
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
 
-    /// @notice Encode UserOperation as bytes for validateUserOp (which now takes bytes)
-    function _encodeUserOp(IEntryPoint.UserOperation memory userOp) internal pure returns (bytes memory) {
-        return abi.encode(
-            userOp.sender,
-            userOp.nonce,
-            userOp.initCode,
-            userOp.callData,
-            userOp.callGasLimit,
-            userOp.verificationGasLimit,
-            userOp.preVerificationGas,
-            userOp.maxFeePerGas,
-            userOp.maxPriorityFeePerGas,
-            userOp.paymasterAndData,
-            userOp.signature
-        );
+    /// @notice Build a PackedUserOperation for gate.validateUserOp (v0.7 2-arg form).
+    /// Gate only reads sender/callData/signature; other fields may be zero.
+    function _packUserOp(address sender, bytes memory callData, bytes memory sigField)
+        internal pure returns (PackedUserOperation memory u)
+    {
+        u.sender = sender;
+        u.callData = callData;
+        u.signature = sigField;
     }
 
     ClankerGate4337 gate;
@@ -260,14 +253,10 @@ contract GasBenchmark is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = callData;
-
         bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
 
         uint256 gasBefore = gasleft();
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash);
         uint256 gasUsed = gasBefore - gasleft();
 
         console.log("ClankerGate approach:", gasUsed);
@@ -323,15 +312,11 @@ contract GasBenchmark is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        IEntryPoint.UserOperation memory userOp;
-        userOp.sender = address(account);
-        userOp.callData = callData;
-
         bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
 
         uint256 gasBefore = gasleft();
         vm.prank(address(account));
-        gate.validateUserOp(_encodeUserOp(userOp), userOpHash, guardData);
+        gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash);
         uint256 gasUsed = gasBefore - gasleft();
 
         console.log(label, ":", gasUsed);

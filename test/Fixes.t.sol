@@ -6,13 +6,14 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ClankerGate4337} from "../src/ClankerGate4337.sol";
 import {ClankerGate7579} from "../src/ClankerGate7579.sol";
 import {ClankerGateCore, ParamRule, Permission} from "../src/ClankerGateCore.sol";
-import {IEntryPoint, IAccount} from "../src/interfaces/IERC4337.sol";
+import {PackedUserOperation, IEntryPoint, IAccount} from "../src/interfaces/IERC4337.sol";
 import {IERC7579Account, MODULE_TYPE_VALIDATOR} from "../src/interfaces/IERC7579.sol";
 
 // ================================================================
-//  CG-05: validateUserOp non-standard guardData param
-//  Standard: validateUserOp(bytes calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds)
-//  Buggy:    validateUserOp(IEntryPoint.UserOperation calldata userOp, bytes32 userOpHash, bytes calldata guardData)
+//  CG-05: validateUserOp signature — updated to PackedUserOperation v0.7 (H-3, D1)
+//  Old (3-arg):  validateUserOp(bytes calldata userOp, bytes32 userOpHash, bytes calldata guardData)
+//  New (2-arg):  validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash)
+//  guardData is now embedded in userOp.signature.
 // ================================================================
 
 contract MockAccountForCG05 {
@@ -23,8 +24,8 @@ contract MockAccountForCG05 {
     function owner() external view returns (address) {
         return ownerAddr_;
     }
-    function callValidate(address gate, bytes calldata userOp, bytes32 userOpHash, bytes calldata guardData) external returns (uint256) {
-        return ClankerGate4337(gate).validateUserOp(userOp, userOpHash, guardData);
+    function callValidate(address gate, PackedUserOperation calldata userOp, bytes32 userOpHash) external returns (uint256) {
+        return ClankerGate4337(gate).validateUserOp(userOp, userOpHash);
     }
 }
 
@@ -41,16 +42,10 @@ contract CG05_Test is Test {
         gate = new ClankerGate4337();
     }
 
-    /// @notice CG-05: This test verifies that validateUserOp uses the standard
-    ///         ERC-4337 IAccount interface: (bytes, bytes32, bytes)
-    ///         After fix: First param is bytes (ABI-encoded UserOp), not IEntryPoint.UserOperation
-    ///         3rd param is still guardData for permission/signature
-    ///         
-    ///         NOTE: The standard ERC-4337 interface expects uint256 for 3rd param.
-    ///         But for a module system where the account passes guardData separately,
-    ///         using bytes for 3rd param is acceptable for the module interface.
-    ///         The key fix was changing from IEntryPoint.UserOperation to bytes.
-    function testCG05_ValidateUserOp_UsesBytesForUserOp() public {
+    /// @notice CG-05: Verifies that validateUserOp now takes (PackedUserOperation, bytes32)
+    ///         and reads (proof, permission, ownerSig) from userOp.signature instead of a
+    ///         non-standard 3rd guardData argument (H-3, D1). The old 3-arg form is gone.
+    function testCG05_ValidateUserOp_UsesPackedUserOperation() public {
         Permission memory permission;
         permission.target = address(0);
         permission.selector = 0x12345678;
@@ -58,43 +53,30 @@ contract CG05_Test is Test {
         permission.validAfter = 0;
         permission.validUntil = 0;
         permission.chainId = 0;
-        permission.maxValue = 0; // Must set maxValue since hashPermission includes it
+        permission.maxValue = 0;
 
         address accountAddr = address(new MockAccountForCG05(owner));
-        // Need to use hashPermissionWithAccount with nonce=1 because setPolicyRoot increments nonce to 1
         bytes32 leaf = gate.computePermissionHash(accountAddr, permission, 1);
         bytes32[] memory proof = new bytes32[](0);
-        bytes32 root = leaf;
 
         vm.prank(accountAddr);
-        gate.setPolicyRoot(accountAddr, root);
+        gate.setPolicyRoot(accountAddr, leaf);
 
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory sig = abi.encodePacked(r, s, v);
 
-        // Encode UserOperation as bytes (standard ERC-4337 format)
-        bytes memory userOp = abi.encode(
-            accountAddr,  // sender
-            uint256(0),   // nonce
-            hex"",        // initCode
-            hex"12345678", // callData
-            uint256(21000),   // callGasLimit
-            uint256(21000),   // verificationGasLimit
-            uint256(21000),   // preVerificationGas
-            uint256(1e9),     // maxFeePerGas
-            uint256(1e9),     // maxPriorityFeePerGas
-            hex"",        // paymasterAndData
-            sig             // signature
-        );
+        // guardData now lives inside userOp.signature
+        PackedUserOperation memory userOp;
+        userOp.sender = accountAddr;
+        userOp.callData = hex"12345678";
+        userOp.signature = abi.encode(proof, permission, sig);
 
-        bytes memory guardData = abi.encode(proof, permission, sig);
+        // Call with PackedUserOperation (new 2-arg form)
+        uint256 result = gate.validateUserOp(userOp, userOpHash);
 
-        // Call with bytes-encoded UserOp (correct after fix)
-        uint256 result = gate.validateUserOp(userOp, userOpHash, guardData);
-        
         // Validation should succeed (result = 0)
-        assertEq(result, 0, "CG-05: validation should succeed");
+        assertEq(result, 0, "CG-05: validation should succeed with PackedUserOperation");
     }
 }
 
@@ -320,25 +302,14 @@ contract CG01_Test is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory sig = abi.encodePacked(r, s, v);
 
-        // Encode UserOperation as bytes
-        bytes memory userOp = abi.encode(
-            accountAddr,  // sender
-            uint256(0),   // nonce
-            hex"",        // initCode
-            hex"12345678", // callData
-            uint256(21000),   // callGasLimit
-            uint256(21000),   // verificationGasLimit
-            uint256(21000),   // preVerificationGas
-            uint256(1e9),     // maxFeePerGas
-            uint256(1e9),     // maxPriorityFeePerGas
-            hex"",        // paymasterAndData
-            sig             // signature
-        );
-
-        bytes memory guardData = abi.encode(proof, permission, sig);
+        // guardData now lives inside userOp.signature (PackedUserOperation v0.7)
+        PackedUserOperation memory userOp;
+        userOp.sender = accountAddr;
+        userOp.callData = hex"12345678";
+        userOp.signature = abi.encode(proof, permission, sig);
 
         // Call validateUserOp via account to satisfy msg.sender == sender check
-        MockAccountForCG05(accountAddr).callValidate(address(gate), userOp, userOpHash, guardData);
+        MockAccountForCG05(accountAddr).callValidate(address(gate), userOp, userOpHash);
 
         // Check if permission was marked as used DURING validation
         // Nonce is 1 because setPolicyRoot increments it
