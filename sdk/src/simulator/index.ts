@@ -1,6 +1,7 @@
+import type { Address } from 'viem';
 import type { Permission, Hex32, ValidationError, ValidationErrorCode, SimulatorResult, OpType, ValidationResult, ParamRule } from '../types/index.js';
 import { OP, ValidationErrorCodes } from '../types/index.js';
-import { verifyMerkleProof } from '../builder/index.js';
+import { verifyMerkleProof, hashPermissionLeaf } from '../builder/index.js';
 
 const ZERO_BYTES32 = '0x0000000000000000000000000000000000000000000000000000000000000000' as Hex32;
 
@@ -189,10 +190,32 @@ export function createSimulator() {
     },
 
     /**
+     * Computes the canonical on-chain leaf for an account-scoped permission.
+     * Convenience wrapper around hashPermissionLeaf for use in test scenarios.
+     *
+     * @param permission  - The permission to hash
+     * @param account     - The account address
+     * @param nonce       - The policy epoch nonce
+     * @param gateAddress - Address of the deployed gate contract
+     * @param chainId     - Chain ID of the gate's deployment network
+     * @returns 32-byte canonical leaf hash
+     */
+    computeLeaf(params: {
+      permission: Permission;
+      account: Address;
+      nonce: bigint;
+      gateAddress: Address;
+      chainId: bigint;
+    }): Hex32 {
+      return hashPermissionLeaf(params);
+    },
+
+    /**
      * Full validation matching the contract's validateUserOp logic.
      *
      * The caller must supply a pre-computed canonical leaf (from builder.getProof or
-     * hashPermissionLeaf) so the simulator does not need to know the gate/chain/nonce context.
+     * hashPermissionLeaf / simulator.computeLeaf) so the simulator does not need to
+     * know the gate/chain/nonce context inside the proof-check step.
      *
      * @param params - Validation parameters including pre-computed leaf
      * @returns ValidationResult with success or detailed error
