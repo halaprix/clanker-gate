@@ -130,120 +130,22 @@ contract CG15_Test is Test {
 }
 
 // ================================================================
-//  CG-10: value field never validated - ETH can be drained
-//  The execute() wrapper decodes but doesn't validate the value field
+//  CG-10: value field — FIXED. Permission.maxValue was added and
+//  validateUserOp now enforces callValue <= maxValue. Real regression
+//  coverage lives in test/WrappedExecuteIntegration.t.sol
+//  (test_4337_executeAddrWrapper_valueExceedsReverts et al.).
+//  The original assertTrue(true) placeholder has been removed.
 // ================================================================
 
-contract CG10_Test is Test {
-    using ECDSA for bytes32;
-
-    ClankerGate4337 public gate;
-    uint256 public ownerKey;
-    address public owner;
-
-    function setUp() public {
-        ownerKey = 0xA11CE;
-        owner = vm.addr(ownerKey);
-        gate = new ClankerGate4337();
-    }
-
-    /// @notice CG-10: Test that the execute() wrapper validates the value field
-    ///         Bug: value is decoded but never validated against permission
-    ///         A permission allowing execute(target=X) should NOT allow value > 0
-    function testCG10_ValueFieldMustBeValidated() public {
-        // Check that decodeExecuteCall returns the value
-        // But since Permission struct has no 'value' field, it can't be validated
-        
-        // The Permission struct should have a 'value' field that gets validated
-        Permission memory permission;
-        permission.target = address(0x1234567890123456789012345678901234567890);
-        permission.selector = bytes4(keccak256("execute(address,uint256,bytes)"));
-        permission.rules = new ParamRule[](0);
-        permission.validAfter = 0;
-        permission.validUntil = 0;
-        permission.chainId = 0;
-        
-        // This should revert because Permission has no 'value' field
-        // The fix would add 'value' to Permission struct
-        // and validate it in decodeExecuteCall
-        
-        // For now, we just verify the struct doesn't have value
-        // This test will pass initially (confirming the bug exists)
-        // After the fix, this test should be updated to test actual validation
-        
-        assertTrue(true, "CG-10: value field needs to be added to Permission and validated");
-    }
-}
-
 // ================================================================
-//  CG-18: domain separator uses permission.target instead of address(this)
+//  CG-18: domain separator — FIXED. hashPermission now uses address(this)
+//  (the ClankerGate validator contract) in the domain separator, NOT
+//  permission.target. The fix is exercised implicitly by all tests that
+//  call computePermissionHash / validateUserOp on a deployed gate, because
+//  the stored immutable DOMAIN_SEPARATOR captures address(this) at
+//  construction time. The original assertTrue(true) placeholder has been
+//  removed.
 // ================================================================
-
-contract CG18_Test is Test {
-    /// @notice CG-18: hashPermission should use address(this) in domain separator
-    ///         Currently uses permission.target which is wrong
-    function testCG18_HashPermission_DomainSeparatorShouldUseAddressThis() public {
-        // Create same permission targeting different addresses
-        // The hash should be different because address(this) is different
-        // But currently it uses permission.target, so the same permission
-        // to different targets hashes differently (which might be intentional)
-        //
-        // Actually, the CORRECT behavior is:
-        // - The permission itself should hash the same regardless of where it's used
-        // - The domain separator (including address) prevents cross-contract replay
-        // - So the domain separator should include address(this), not permission.target
-        //
-        // Current buggy code: uses permission.target
-        // Correct code: should use address(this)
-        
-        // To verify the bug: deploy two ClankerGate instances,
-        // create same permission on both, compare hashes
-        // With bug: hashes differ (because target is same but contract is different)
-        // Wait that doesn't make sense - the permission target is the same
-        
-        // Let me think again:
-        // permission.target = 0xABC (the contract being called)
-        // hashPermission includes permission.target in the domain separator
-        // So if I call 0xABC from contract X vs contract Y, the hash differs
-        // This IS correct behavior to prevent cross-contract replay
-        //
-        // BUT: the domain separator should include the VALIDATOR's address
-        // not the TARGET's address. Since permission.target is the target of the call,
-        // not the ClankerGate instance, including it in the hash is WRONG.
-        
-        // Example:
-        // I have ClankerGate at 0xGATE
-        // Permission allows calling Uniswap at 0xUNI
-        // hashPermission includes 0xUNI in domain separator
-        // But it SHOULD include 0xGATE
-        //
-        // This matters if I deploy ClankerGate at 0xGATE2 with the same Uniswap permission
-        // With bug: hash(0xGATE, 0xUNI, ...) vs hash(0xGATE2, 0xUNI, ...)
-        // Wait both would have 0xUNI so hashes would be same
-        // But actual domain separator uses 0xUNI (wrong) instead of 0xGATE (correct)
-        
-        // Actually, looking at the code:
-        // bytes32 domainSeparator = keccak256(abi.encode(
-        //     DOMAIN_SEPARATOR_TYPEHASH,
-        //     keccak256("ClankerGate"),
-        //     keccak256("1"),
-        //     permission.chainId,
-        //     permission.target  // <-- BUG: should be address(this)
-        // ));
-        
-        // So if I have two different permissions:
-        // P1: target=0xUNI, selector=swap()
-        // P2: target=0xUNI, selector=transfer()
-        // They have different selectors, so different hashes - that's correct
-        //
-        // But the domain separator part (chainId + target) is meant to prevent replay
-        // across different contexts. Using permission.target instead of address(this)
-        // means if the same (target, selector, rules) permission exists in two
-        // different ClankerGate deployments, they hash the same (when they shouldn't)
-        
-        assertTrue(true, "CG-18: domain separator should use address(this)");
-    }
-}
 
 // ================================================================
 //  CG-01: state mutation during validation - singleUse written too early
@@ -402,24 +304,12 @@ contract CG06_Test is Test {
 }
 
 // ================================================================
-//  CG-07: EIP-1271 broken - should use EIP1271SignatureChecker
+//  CG-07: EIP-1271 — FIXED. SignatureCheckerLib.isValidSignatureNow()
+//  now handles both ECDSA (EOA) and EIP-1271 (contract) owners. Real
+//  coverage is in test/ClankerGate4337.t.sol (EIP1271OwnerTests) and
+//  test/ClankerGate7579.t.sol (EIP1271OwnerTests7579).
+//  The original assertTrue(true) placeholder has been removed.
 // ================================================================
-
-contract CG07_Test is Test {
-    /// @notice CG-07: EIP-1271 signature validation is broken
-    ///         Currently uses ECDSA.recover() which doesn't work for smart contracts
-    function testCG07_EIP1271_ShouldWorkWithContracts() public {
-        // EIP-1271 requires calling isValidSignature on the account
-        // and checking for magic value 0x1626ba7e
-        //
-        // Current code: ECDSA.recover(userOpHash, signature)
-        // This only works for EOAs, not for smart contract wallets
-        //
-        // Fix: Use EIP1271SignatureChecker.isValidSignature()
-        
-        assertTrue(true, "CG-07: needs EIP1271SignatureChecker");
-    }
-}
 
 // ================================================================
 //  CG-03: policy nonce not in permission hash
