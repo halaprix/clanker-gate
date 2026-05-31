@@ -5,45 +5,47 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ClankerGateCore, Permission, ParamRule, DOMAIN_SEPARATOR_TYPEHASH, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH} from "./ClankerGateCore.sol";
 import {IERC7579Account, MODULE_TYPE_VALIDATOR} from "./interfaces/IERC7579.sol";
 import {IERC1271} from "./interfaces/IERC1271.sol";
+import {PackedUserOperation} from "./interfaces/IERC4337.sol";
 
 /**
  * @title ClankerGate7579 - ERC-7579 Validator Module
  * @author Clanker Protocol
  * @custom:security-contact security@summer.fi
  * @notice Stateless validator module for ERC-7579 modular accounts
- * @dev 
+ * @dev
  *     This module implements ERC-7579 Module Type 1 (Validator).
  *     It validates UserOperations against policy rules stored in Merkle trees.
- *     
+ *
  *     ## Installation
- *     
+ *
  *     account.installModule(
  *         MODULE_TYPE_VALIDATOR,
  *         address(clankerGate7579),
  *         abi.encode(owner, initialRoot, signatureValidator)
  *     );
- *     
+ *
  *     ## initData Format
- *     
+ *
  *     - initOwner: Address that can update policy (usually account owner)
  *     - initPolicyRoot: Initial Merkle root (0 = disabled, reverts on everything)
  *     - signatureValidator: Address of signature validator contract (account-specific)
  *       - 0 = use account's owner() function
  *       - address = use this contract for signature validation
- *     
+ *
  *     ## Supported Accounts
- *     
+ *
  *     - Safe v1.5+ (with ERC-7579 adapter)
  *     - ZeroDev
  *     - Biconomy
  *     - Rhinestone
  *     - Any ERC-7579 compliant account
- *     
+ *
  *     ## Security Notes
- *     
+ *
  *     - singleUse permissions are scoped to the account to prevent cross-account collision attacks
  *     - Non-execute() calldata must have permission.target == address(0) or match the implicit target
- *     - Supports both PackedUserOperation (ERC-4337 v0.7) and legacy UserOperation formats
+ *     - External self-calls are disallowed during ERC-4337 validation; callData is read directly
+ *       from userOp.callData instead of using try/catch self-decode machinery
  */
 contract ClankerGate7579 {
     using ECDSA for bytes32;
@@ -77,6 +79,13 @@ contract ClankerGate7579 {
     /// @notice Mapping from account => permissionHash => used (for singleUse permissions)
     /// @dev Uses nested mapping to prevent cross-account singleUse collision attacks
     mapping(address => mapping(bytes32 => bool)) public usedPermissionHashes;
+
+    /// @notice Persistent monotonic install counter per account.
+    /// @dev Survives uninstall. onInstall uses ++_installEpoch[account] as the fresh nonce,
+    ///      ensuring that singleUse markings from a previous install epoch can never collide
+    ///      with markings from the current install epoch even though usedPermissionHashes
+    ///      cannot be enumerated and cleared on uninstall.
+    mapping(address => uint256) private _installEpoch;
 
     /// @notice Emitted when module is installed on an account
     event ModuleInstalled(address indexed account, address owner, bytes32 policyRoot, address signatureValidator);
@@ -121,11 +130,12 @@ contract ClankerGate7579 {
     // ============ ERC-7579 Module Interface ============
 
     /**
-     * @notice Returns the module type ID
-     * @return 1 = Validator
+     * @notice Returns whether the module implements the given module type
+     * @param moduleTypeId The module type ID to check (1 = Validator, 2 = Executor, ...)
+     * @return True if this module implements the given type
      */
-    function moduleType() external pure returns (uint256) {
-        return MODULE_TYPE_VALIDATOR;
+    function isModuleType(uint256 moduleTypeId) external pure returns (bool) {
+        return moduleTypeId == MODULE_TYPE_VALIDATOR;
     }
 
     /**
@@ -140,6 +150,9 @@ contract ClankerGate7579 {
     /**
      * @notice Called by account during module installation
      * @param initData ABI-encoded (address owner, bytes32 policyRoot, address signatureValidator)
+     * @dev Uses a persistent per-account monotonic install epoch counter as the nonce so that
+     *      every (re)install gets a fresh nonce. The counter survives uninstall, which means
+     *      singleUse markings from a previous install epoch can never collide with the new one.
      */
     function onInstall(bytes calldata initData) external {
         // SECURITY FIX: Prevent overwrite of existing configuration
@@ -147,13 +160,17 @@ contract ClankerGate7579 {
             revert AlreadyInstalled();
         }
 
-        (address initOwner, bytes32 initPolicyRoot, address initSignatureValidator) = 
+        (address initOwner, bytes32 initPolicyRoot, address initSignatureValidator) =
             abi.decode(initData, (address, bytes32, address));
 
         AccountConfig storage config = accountConfigs[msg.sender];
         config.owner = initOwner;
         config.policyRoot = initPolicyRoot;
-        config.nonce = 1;
+        // M-5: Use the next epoch value as the nonce. _installEpoch is never cleared on
+        // uninstall, so re-installing always produces a strictly higher nonce than any
+        // previous install. Leaves are computed against config.nonce (readable via
+        // getAccountConfig), binding them to this install epoch.
+        config.nonce = ++_installEpoch[msg.sender];
         config.signatureValidator = initSignatureValidator;
         config.installed = true;
 
@@ -163,22 +180,22 @@ contract ClankerGate7579 {
     /**
      * @notice Called by account during module uninstallation
      * @param deInitData Optional data (unused)
+     * @dev Deletes accountConfigs but intentionally leaves _installEpoch and
+     *      usedPermissionHashes intact. _installEpoch must survive so the next
+     *      onInstall receives a strictly higher epoch nonce, which ensures that
+     *      any singleUse entries written under a previous nonce can never match
+     *      entries written under the new nonce. usedPermissionHashes cannot be
+     *      fully enumerated, but because the nonce changes on every reinstall the
+     *      stale entries are effectively unreachable (the leaves are different).
      */
     function onUninstall(bytes calldata deInitData) external {
         if (!accountConfigs[msg.sender].installed) {
             revert NotInstalled();
         }
 
-        // CG-04: Clear usedPermissionHashes to prevent stale state if re-installed
         address account = msg.sender;
-        // We can't enumerate all keys in a mapping, but we can delete the account's mapping
-        // This prevents old singleUse permissions from persisting across re-installs
-        // Note: In Solidity, deleting a mapping variable doesn't recursively delete contents
-        // For full cleanup, we track the account in a list and clear iteratively
-        // For now, mark the account as having no permissions used by deleting the storage slot
-        // This is a known limitation - the usedPermissionHashes for this account will remain
-        // but since the accountConfig is deleted, validateUserOp will revert with NotInstalled
-        // A complete fix would require iterating over known permission hashes
+        // Delete the account config (marks as not installed, clears owner/root/nonce/sigValidator).
+        // _installEpoch is intentionally NOT deleted — see natspec above.
         delete accountConfigs[account];
 
         emit ModuleUninstalled(account);
@@ -193,11 +210,11 @@ contract ClankerGate7579 {
      */
     function setPolicyRoot(address account, bytes32 newRoot) external {
         AccountConfig storage config = accountConfigs[account];
-        
+
         if (!config.installed) {
             revert NotInstalled();
         }
-        
+
         if (msg.sender != account && msg.sender != config.owner) {
             revert Unauthorized();
         }
@@ -227,11 +244,11 @@ contract ClankerGate7579 {
      */
     function setOwner(address account, address newOwner) external {
         AccountConfig storage config = accountConfigs[account];
-        
+
         if (!config.installed) {
             revert NotInstalled();
         }
-        
+
         if (msg.sender != account && msg.sender != config.owner) {
             revert Unauthorized();
         }
@@ -242,19 +259,20 @@ contract ClankerGate7579 {
     // ============ Validation ============
 
     /**
-     * @notice Validate a UserOperation (supports both PackedUserOperation and legacy formats)
-     * @param userOp The UserOperation being validated (can be PackedUserOperation or legacy format)
-     * @param userOpHash Hash of the UserOperation
-     * @param guardData ABI-encoded (bytes32[] proof, Permission permission, bytes signature)
+     * @notice Validate a UserOperation against the account's policy (ERC-7579 IValidator interface)
+     * @param userOp The ERC-4337 v0.7 PackedUserOperation; gate reads sender, callData, signature
+     * @param userOpHash Hash of the UserOperation computed by the EntryPoint
      * @return validationData 0 for valid, packed validation data for invalid
+     * @dev userOp.signature must be abi.encode(bytes32[] proof, Permission permission, bytes ownerSig).
+     *      External self-calls are disallowed during ERC-4337 validation, so callData is read
+     *      directly from userOp.callData rather than through try/catch self-decode machinery.
      */
     function validateUserOp(
-        bytes calldata userOp,  // Encoded UserOperation (PackedUserOperation or legacy)
-        bytes32 userOpHash,
-        bytes calldata guardData
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash
     ) external returns (uint256 validationData) {
         AccountConfig storage config = accountConfigs[msg.sender];
-        
+
         if (!config.installed) {
             revert NotInstalled();
         }
@@ -264,8 +282,8 @@ contract ClankerGate7579 {
             revert PolicyRootNotSet();
         }
 
-        (bytes32[] memory proof, Permission memory permission, bytes memory signature) =
-            abi.decode(guardData, (bytes32[], Permission, bytes));
+        (bytes32[] memory proof, Permission memory permission, bytes memory ownerSig) =
+            abi.decode(userOp.signature, (bytes32[], Permission, bytes));
 
         if (!ClankerGateCore.verifyMerkleProof(root, proof, permission, msg.sender, accountConfigs[msg.sender].nonce)) {
             revert InvalidProof();
@@ -291,8 +309,10 @@ contract ClankerGate7579 {
             revert UnauthorizedCallerForPermission(msg.sender, permission.authorizedCaller);
         }
 
-        // Decode UserOperation - support both formats
-        bytes memory callData = _decodeCallData(userOp);
+        // Read callData directly from the userOp struct field.
+        // External self-calls (the old try/catch _decodeCallData pattern) are disallowed
+        // during ERC-4337 validation, so we access userOp.callData directly.
+        bytes memory callData = userOp.callData;
 
         // Decode execute() wrapper — supports both execute(address,uint256,bytes) and ERC-7579 single-call
         (, address actualTarget, uint256 innerOffset, uint256 innerLength, uint256 callValue) =
@@ -327,7 +347,7 @@ contract ClankerGate7579 {
             innerCallData = callData;
         }
 
-        (bool valid, uint8 valErrorCode, uint256 ruleIndex) = 
+        (bool valid, uint8 valErrorCode, uint256 ruleIndex) =
             ClankerGateCore.validateCallDataMemoryExtended(innerCallData, permission);
         if (!valid) {
             return _packValidationData(true, 0, 0);
@@ -336,18 +356,18 @@ contract ClankerGate7579 {
         // CG-07: Validate signature — support both ECDSA (EOA) and EIP-1271 (smart contract wallets)
         address sigValidator = accountConfigs[msg.sender].signatureValidator;
         bool sigValid;
-        
+
         if (sigValidator != address(0) && sigValidator.code.length > 0) {
             // Smart contract wallet: use EIP-1271 isValidSignature
-            sigValid = IERC1271(sigValidator).isValidSignature(userOpHash, signature) 
+            sigValid = IERC1271(sigValidator).isValidSignature(userOpHash, ownerSig)
                 == IERC1271.isValidSignature.selector;
         } else {
             // EOA: use ECDSA recovery
             address expectedSigner = _getExpectedSigner(msg.sender);
-            address signer = userOpHash.recover(signature);
+            address signer = userOpHash.recover(ownerSig);
             sigValid = signer == expectedSigner;
         }
-        
+
         if (!sigValid) {
             revert UnauthorizedSigner(_getExpectedSigner(msg.sender), address(0));
         }
@@ -366,87 +386,43 @@ contract ClankerGate7579 {
     }
 
     /**
-     * @notice Decodes callData from UserOperation, supporting both packed and legacy formats
-     * @param userOp The encoded UserOperation
-     * @return callData The callData field from the UserOperation
+     * @notice ERC-7579 / ERC-1271 signer-identity check (D6).
+     * @dev Validates SIGNER IDENTITY ONLY — no Merkle policy check, because a 1271 request
+     *      carries no callData/target to gate against. `sender` is the original ERC-1271
+     *      requester; it is not used for policy here and is accepted as any address.
+     *      Returns the ERC-1271 magic value (0x1626ba7e) when the signature is from the
+     *      expected signer for msg.sender (the account), 0xffffffff otherwise.
+     * @param sender The original requester of the ERC-1271 check (not used for policy)
+     * @param hash  The hash that was signed
+     * @param signature The signature to validate
+     * @return magicValue 0x1626ba7e on success, 0xffffffff on failure
      */
-    function _decodeCallData(bytes calldata userOp) internal view returns (bytes memory callData) {
-        // CG-06: Support both Legacy and PackedUserOperation v0.7 formats
-        // Try PackedUserOperation v0.7 first (newer format)
-        // Format: sender, nonce, initCode, callData, accountGasLimits, verificationGasLimit,
-        //         preVerificationGas, maxFeePerGas, maxPriorityFeePerGas, paymasterAndData, signature
-        try this.decodeCallDataPacked(userOp) returns (bytes memory result) {
-            return result;
-        } catch {
-            // Fall back to legacy UserOperation format (10 fields)
-            // Format: sender, nonce, initCode, callData, callGasLimit, verificationGasLimit,
-            //         preVerificationGas, maxFeePerGas, maxPriorityFeePerGas, paymasterAndData
-            try this.decodeCallDataLegacy(userOp) returns (bytes memory result) {
-                return result;
-            } catch {
-                revert InvalidUserOpFormat();
-            }
+    function isValidSignatureWithSender(
+        address sender,
+        bytes32 hash,
+        bytes calldata signature
+    ) external view returns (bytes4) {
+        // msg.sender is the smart account that installed this module.
+        AccountConfig storage config = accountConfigs[msg.sender];
+        if (!config.installed) {
+            return bytes4(0xffffffff);
         }
-    }
 
-    /// @notice Decode callData from PackedUserOperation v0.7 format
-    function decodeCallDataPacked(
-        bytes calldata userOp
-    ) external view returns (bytes memory callData) {
-        (
-            , // sender
-            , // nonce
-            , // initCode
-            callData,
-            , // accountGasLimits
-            , // verificationGasLimit
-            , // preVerificationGas
-            , // maxFeePerGas
-            , // maxPriorityFeePerGas
-            , // paymasterAndData
-            // signature
-        ) = abi.decode(userOp, (
-            address,
-            uint256,
-            bytes,
-            bytes,
-            bytes32,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            bytes,
-            bytes
-        ));
-    }
+        address sigValidator = config.signatureValidator;
+        bool sigValid;
 
-    /// @notice Decode callData from legacy UserOperation format
-    function decodeCallDataLegacy(
-        bytes calldata userOp
-    ) external view returns (bytes memory callData) {
-        (
-            , // sender
-            , // nonce
-            , // initCode
-            callData,
-            , // callGasLimit
-            , // verificationGasLimit
-            , // preVerificationGas
-            , // maxFeePerGas
-            , // maxPriorityFeePerGas
-             // paymasterAndData
-        ) = abi.decode(userOp, (
-            address,
-            uint256,
-            bytes,
-            bytes,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            uint256,
-            bytes
-        ));
+        if (sigValidator != address(0) && sigValidator.code.length > 0) {
+            // Smart contract signer path: delegate to the configured EIP-1271 validator
+            sigValid = IERC1271(sigValidator).isValidSignature(hash, signature)
+                == IERC1271.isValidSignature.selector;
+        } else {
+            // EOA path: ECDSA recovery against the expected signer
+            address expectedSigner = _getExpectedSigner(msg.sender);
+            address signer = hash.recover(signature);
+            sigValid = signer == expectedSigner;
+        }
+
+        return sigValid ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
 
     /**

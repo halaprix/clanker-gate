@@ -45,3 +45,34 @@ interface IERC7579Account {
      */
     function owner() external view returns (address);
 }
+
+/**
+ * @notice ERC-7579 IValidator interface implemented by ClankerGate7579
+ * @dev Module Type 1 (Validator). Key entry points:
+ *
+ *   - isModuleType(uint256 moduleTypeId) → bool
+ *       Returns true iff moduleTypeId == MODULE_TYPE_VALIDATOR (1).
+ *       Replaces the legacy moduleType() → uint256 form.
+ *
+ *   - validateUserOp(PackedUserOperation calldata, bytes32 userOpHash) → uint256
+ *       Reads (proof, permission, ownerSig) from userOp.signature.
+ *       Returns 0 on success, packed ERC-4337 validation data on failure.
+ *
+ *   - isValidSignatureWithSender(address sender, bytes32 hash, bytes calldata signature) → bytes4
+ *       Signer-identity-only check (no Merkle policy). Returns 0x1626ba7e on success,
+ *       0xffffffff on failure. `sender` is the original ERC-1271 requester (not used
+ *       for policy gating).
+ *
+ *   - onInstall(bytes calldata initData)
+ *       initData = abi.encode(address owner, bytes32 policyRoot, address signatureValidator)
+ *       Sets config.nonce = ++_installEpoch[msg.sender] (monotonic across reinstalls).
+ *
+ *   - onUninstall(bytes calldata deInitData)
+ *       Deletes accountConfigs but preserves _installEpoch so reinstall always gets a
+ *       fresh nonce that is strictly greater than any previous install's nonce.
+ */
+interface IERC7579Validator {
+    function isModuleType(uint256 moduleTypeId) external pure returns (bool);
+    function onInstall(bytes calldata initData) external;
+    function onUninstall(bytes calldata deInitData) external;
+}

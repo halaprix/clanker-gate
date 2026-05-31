@@ -327,24 +327,77 @@ contract CG01_Test is Test {
 }
 
 // ================================================================
-//  CG-06: PackedUserOp v0.7 decode revert
+//  CG-06: validateUserOp(PackedUserOperation, bytes32) for ClankerGate7579
+//  The old try/catch self-call decode machinery has been removed; callData is now
+//  read directly from userOp.callData (external self-calls are disallowed during
+//  ERC-4337 validation). This test verifies end-to-end validation succeeds.
 // ================================================================
 
+contract MockAccountForCG06 {
+    address public ownerAddr_;
+    constructor(address ownerAddr) {
+        ownerAddr_ = ownerAddr;
+    }
+    function owner() external view returns (address) {
+        return ownerAddr_;
+    }
+    function callValidate(address gate, PackedUserOperation calldata userOp, bytes32 userOpHash) external returns (uint256) {
+        return ClankerGate7579(gate).validateUserOp(userOp, userOpHash);
+    }
+}
+
 contract CG06_Test is Test {
-    /// @notice CG-06: _decodeCallData in 7579 doesn't handle PackedUserOperation
-    function testCG06_PackedUserOp_ShouldDecode() public {
-        // ERC-4337 v0.7 PackedUserOperation has different layout
-        // The current _decodeCallData only handles legacy format
-        //
-        // PackedUserOperation encoding:
-        // address sender, uint256 nonce, bytes initCode, uint256 callDataLength,
-        // bytes callData, uint256 accountGasLimits, uint256 metadataHash,
-        // uint256 preVerificationGas, uint256 gasFees, bytes paymasterAndData, bytes signature
-        //
-        // The issue is that the code tries to read offsets and lengths
-        // in a way that's compatible with legacy format but not PackedUserOp
-        
-        assertTrue(true, "CG-06: PackedUserOp decode needs fixing");
+    using ECDSA for bytes32;
+
+    ClankerGate7579 public gate;
+    uint256 public ownerKey;
+    address public owner;
+
+    function setUp() public {
+        ownerKey = 0xBEEF;
+        owner = vm.addr(ownerKey);
+        gate = new ClankerGate7579();
+    }
+
+    /// @notice CG-06: ClankerGate7579.validateUserOp now takes (PackedUserOperation, bytes32)
+    ///         and reads callData directly from userOp.callData; (proof, permission, ownerSig)
+    ///         come from userOp.signature. The try/catch self-call machinery is gone.
+    function testCG06_PackedUserOp_ValidatesCorrectly() public {
+        Permission memory permission;
+        permission.target = address(0);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+        permission.validAfter = 0;
+        permission.validUntil = 0;
+        permission.chainId = 0;
+        permission.maxValue = 0;
+
+        address accountAddr = address(new MockAccountForCG06(owner));
+
+        // Install the module on the account
+        vm.prank(accountAddr);
+        gate.onInstall(abi.encode(owner, bytes32(0), address(0)));
+
+        bytes32 leaf = gate.computePermissionHash(accountAddr, permission, 1);
+
+        vm.prank(accountAddr);
+        gate.setPolicyRoot(accountAddr, leaf);
+
+        bytes32[] memory proof = new bytes32[](0);
+        bytes32 userOpHash = keccak256("test");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        // (proof, permission, ownerSig) packed into userOp.signature
+        PackedUserOperation memory userOp;
+        userOp.sender = accountAddr;
+        userOp.callData = hex"12345678";
+        userOp.signature = abi.encode(proof, permission, sig);
+
+        // validateUserOp is called with msg.sender == accountAddr (the account)
+        uint256 result = MockAccountForCG06(accountAddr).callValidate(address(gate), userOp, userOpHash);
+
+        assertEq(result, 0, "CG-06: 7579 validateUserOp should succeed with PackedUserOperation");
     }
 }
 

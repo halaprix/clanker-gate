@@ -6,6 +6,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ClankerGate7579} from "../src/ClankerGate7579.sol";
 import {ClankerGateCore, ParamRule, Permission} from "../src/ClankerGateCore.sol";
 import {IERC7579Account, MODULE_TYPE_VALIDATOR} from "../src/interfaces/IERC7579.sol";
+import {PackedUserOperation} from "../src/interfaces/IERC4337.sol";
 
 contract MockERC7579Account is IERC7579Account {
     address private _owner;
@@ -31,7 +32,7 @@ contract MockERC7579Account is IERC7579Account {
     ) external override {
         _installedModules[moduleTypeId][module] = true;
         _moduleData[moduleTypeId][module] = initData;
-        
+
         ClankerGate7579(module).onInstall(initData);
     }
 
@@ -48,13 +49,13 @@ contract MockERC7579Account is IERC7579Account {
         return _installedModules[moduleTypeId][module];
     }
 
+    /// @notice Call validateUserOp on the module with a PackedUserOperation (2-arg ERC-7579 form)
     function callValidate(
         address module,
-        bytes calldata userOp,
-        bytes32 userOpHash,
-        bytes calldata guardData
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash
     ) external returns (uint256) {
-        return ClankerGate7579(module).validateUserOp(userOp, userOpHash, guardData);
+        return ClankerGate7579(module).validateUserOp(userOp, userOpHash);
     }
 }
 
@@ -73,23 +74,16 @@ contract ClankerGate7579Test is Test {
         account = new MockERC7579Account(owner);
     }
 
-    function _encodeUserOp(
+    /// @notice Build a minimal PackedUserOperation for testing.
+    ///         `sigField` should be abi.encode(proof, permission, ownerSig).
+    function _packUserOp(
         address sender,
-        uint256 nonce,
-        bytes memory callData
-    ) internal pure returns (bytes memory) {
-        return abi.encode(
-            sender,
-            nonce,
-            bytes(""),
-            callData,
-            uint256(100000),
-            uint256(100000),
-            uint256(21000),
-            uint256(1000000000),
-            uint256(100000000),
-            bytes("")
-        );
+        bytes memory callData,
+        bytes memory sigField
+    ) internal pure returns (PackedUserOperation memory u) {
+        u.sender = sender;
+        u.callData = callData;
+        u.signature = sigField;
     }
 
     function _createBasicPermission() internal pure returns (Permission memory) {
@@ -107,6 +101,19 @@ contract ClankerGate7579Test is Test {
 }
 
 // ============================================================
+//                    MODULE TYPE TESTS
+// ============================================================
+
+contract ModuleTypeTests is ClankerGate7579Test {
+    function test_isModuleType() public {
+        assertTrue(gate.isModuleType(1), "isModuleType(1) should be true (Validator)");
+        assertFalse(gate.isModuleType(2), "isModuleType(2) should be false (not Executor)");
+        assertFalse(gate.isModuleType(0), "isModuleType(0) should be false");
+        assertFalse(gate.isModuleType(3), "isModuleType(3) should be false");
+    }
+}
+
+// ============================================================
 //                    MODULE INSTALLATION TESTS
 // ============================================================
 
@@ -119,9 +126,9 @@ contract ModuleInstallationTests is ClankerGate7579Test {
             abi.encode(owner, bytes32(uint256(1)), address(0))
         );
 
-        (address configOwner, bytes32 policyRoot, uint256 nonce, address sigValidator, bool installed) = 
+        (address configOwner, bytes32 policyRoot, uint256 nonce, address sigValidator, bool installed) =
             gate.getAccountConfig(address(account));
-        
+
         assertEq(configOwner, owner);
         assertEq(policyRoot, bytes32(uint256(1)));
         assertEq(nonce, 1);
@@ -146,25 +153,51 @@ contract ModuleInstallationTests is ClankerGate7579Test {
         assertFalse(gate.isModuleInstalled(address(account)));
     }
 
+    /// @notice M-5: After uninstall then reinstall the nonce must increase monotonically.
+    function test_onUninstall_reinstallGetsFreshNonce() public {
+        // First install — nonce should be 1 (first epoch)
+        vm.prank(address(account));
+        account.installModule(
+            MODULE_TYPE_VALIDATOR,
+            address(gate),
+            abi.encode(owner, bytes32(0), address(0))
+        );
+        (,, uint256 nonce1,,) = gate.getAccountConfig(address(account));
+        assertEq(nonce1, 1, "first install nonce should be 1");
+
+        // Uninstall
+        vm.prank(address(account));
+        account.uninstallModule(MODULE_TYPE_VALIDATOR, address(gate), "");
+        (,,,, bool installedAfterUninstall) = gate.getAccountConfig(address(account));
+        assertFalse(installedAfterUninstall, "should not be installed after uninstall");
+
+        // Reinstall — nonce should be 2 (next epoch, strictly greater)
+        vm.prank(address(account));
+        account.installModule(
+            MODULE_TYPE_VALIDATOR,
+            address(gate),
+            abi.encode(owner, bytes32(0), address(0))
+        );
+        (,, uint256 nonce2,,) = gate.getAccountConfig(address(account));
+        assertEq(nonce2, 2, "reinstall nonce should be 2 (greater than previous)");
+
+        // A singleUse permission hash computed under nonce1 is different from nonce2,
+        // so stale markings from the first install cannot collide with the new install.
+        assertTrue(nonce2 > nonce1, "reinstall epoch must be strictly greater than previous");
+    }
+
     function test_RevertWhen_NotInstalled() public {
         Permission memory permission = _createBasicPermission();
-        bytes32 leaf = gate.computePermissionHash(
-            permission.target,
-            permission.selector,
-            permission.rules,
-            permission.validAfter,
-            permission.validUntil,
-            permission.maxValue,
-            permission.singleUse,
-            permission.chainId
-        );
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
+        bytes32[] memory proof = new bytes32[](0);
+        bytes memory sigField = abi.encode(proof, permission, hex"");
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
         bytes32 userOpHash = keccak256("test");
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, hex"");
 
         vm.expectRevert(ClankerGate7579.NotInstalled.selector);
-        account.callValidate(address(gate), userOp, userOpHash, guardData);
+        // msg.sender of validateUserOp must be the account; prank to simulate that
+        vm.prank(address(account));
+        gate.validateUserOp(userOp, userOpHash);
     }
 }
 
@@ -226,7 +259,7 @@ contract ValidationTests is ClankerGate7579Test {
 
     function test_ValidateUserOp_ZeroRules() public {
         Permission memory permission = _createBasicPermission();
-        
+
         bytes32 leaf = gate.computePermissionHashWithAccount(
             address(account),
             permission.target,
@@ -242,13 +275,13 @@ contract ValidationTests is ClankerGate7579Test {
         vm.prank(owner);
         gate.setPolicyRoot(address(account), leaf);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
     }
 
@@ -273,13 +306,13 @@ contract ValidationTests is ClankerGate7579Test {
         gate.setPolicyRoot(address(account), leaf);
 
         bytes memory callData = hex"12345678000000000000000000000000000000000000000000000000000000000000007b";
-        bytes memory userOp = _encodeUserOp(address(account), 0, callData);
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), callData, sigField);
 
-        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
     }
 
@@ -304,13 +337,13 @@ contract ValidationTests is ClankerGate7579Test {
         gate.setPolicyRoot(address(account), leaf);
 
         bytes memory callData = hex"123456780000000000000000000000000000000000000000000000000000000000000064";
-        bytes memory userOp = _encodeUserOp(address(account), 0, callData);
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), callData, sigField);
 
-        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
     }
 
@@ -340,13 +373,13 @@ contract ValidationTests is ClankerGate7579Test {
         gate.setPolicyRoot(address(account), leaf);
 
         bytes memory callData = hex"1234567800000000000000000000000000000000000000000000000000000000000000c8";
-        bytes memory userOp = _encodeUserOp(address(account), 0, callData);
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), callData, sigField);
 
-        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
     }
 
@@ -376,14 +409,14 @@ contract ValidationTests is ClankerGate7579Test {
         gate.setPolicyRoot(address(account), leaf);
 
         bytes memory callData = hex"1234567800000000000000000000000000000000000000000000000000000000000003e8";
-        bytes memory userOp = _encodeUserOp(address(account), 0, callData);
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), callData, sigField);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGateCore.ValueNotInSet.selector, 0, bytes32(uint256(1000)), allowedValues));
-        account.callValidate(address(gate), userOp, userOpHash, guardData);
+        account.callValidate(address(gate), userOp, userOpHash);
     }
 
     function test_RevertWhen_InvalidProof() public {
@@ -406,14 +439,14 @@ contract ValidationTests is ClankerGate7579Test {
         vm.prank(owner);
         gate.setPolicyRoot(address(account), leaf);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(proof, permission, signature);
+        bytes memory sigField = abi.encode(proof, permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
         vm.expectRevert(ClankerGate7579.InvalidProof.selector);
-        account.callValidate(address(gate), userOp, userOpHash, guardData);
+        account.callValidate(address(gate), userOp, userOpHash);
     }
 
     function test_RevertWhen_UnauthorizedSigner() public {
@@ -434,16 +467,15 @@ contract ValidationTests is ClankerGate7579Test {
         gate.setPolicyRoot(address(account), leaf);
 
         uint256 wrongKey = 0x5678;
-        address wrongSigner = vm.addr(wrongKey);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGate7579.UnauthorizedSigner.selector, owner, address(0)));
-        account.callValidate(address(gate), userOp, userOpHash, guardData);
+        account.callValidate(address(gate), userOp, userOpHash);
     }
 
     function test_RevertWhen_PermissionExpired() public {
@@ -467,14 +499,14 @@ contract ValidationTests is ClankerGate7579Test {
 
         vm.warp(block.timestamp + 1);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGate7579.PermissionExpired.selector, block.timestamp, permission.validUntil));
-        account.callValidate(address(gate), userOp, userOpHash, guardData);
+        account.callValidate(address(gate), userOp, userOpHash);
     }
 
     function test_RevertWhen_ChainIdMismatch() public {
@@ -496,14 +528,14 @@ contract ValidationTests is ClankerGate7579Test {
         vm.prank(owner);
         gate.setPolicyRoot(address(account), leaf);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
         vm.expectRevert(abi.encodeWithSelector(ClankerGate7579.ChainIdMismatch.selector, permission.chainId, block.chainid));
-        account.callValidate(address(gate), userOp, userOpHash, guardData);
+        account.callValidate(address(gate), userOp, userOpHash);
     }
 }
 
@@ -546,13 +578,13 @@ contract SignatureValidatorTests is ClankerGate7579Test {
         vm.prank(owner);
         gate.setPolicyRoot(address(account), leaf);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
     }
 
@@ -580,14 +612,66 @@ contract SignatureValidatorTests is ClankerGate7579Test {
         vm.prank(owner);
         gate.setPolicyRoot(address(account), leaf);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(validatorKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
+    }
+}
+
+// ============================================================
+//              isValidSignatureWithSender TESTS (D6)
+// ============================================================
+
+contract IsValidSignatureWithSenderTests is ClankerGate7579Test {
+    function setUp() public override {
+        super.setUp();
+        vm.prank(address(account));
+        account.installModule(
+            MODULE_TYPE_VALIDATOR,
+            address(gate),
+            abi.encode(owner, bytes32(0), address(0))
+        );
+    }
+
+    /// @notice D6: valid owner signature over a hash returns 0x1626ba7e
+    function test_isValidSignatureWithSender_validSig() public {
+        bytes32 hash = keccak256("some data to sign");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, hash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        // msg.sender must be the account (the module was installed on it)
+        vm.prank(address(account));
+        bytes4 result = gate.isValidSignatureWithSender(address(0xBEEF), hash, sig);
+        assertEq(result, bytes4(0x1626ba7e), "valid owner sig should return ERC-1271 magic value");
+    }
+
+    /// @notice D6: bad signature returns 0xffffffff
+    function test_isValidSignatureWithSender_invalidSig() public {
+        bytes32 hash = keccak256("some data to sign");
+        uint256 wrongKey = 0x9999;
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, hash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        vm.prank(address(account));
+        bytes4 result = gate.isValidSignatureWithSender(address(0xBEEF), hash, sig);
+        assertEq(result, bytes4(0xffffffff), "invalid sig should return 0xffffffff");
+    }
+
+    /// @notice D6: not-installed account returns 0xffffffff
+    function test_isValidSignatureWithSender_notInstalled() public {
+        bytes32 hash = keccak256("some data");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, hash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        address notInstalled = address(0xDEAD1234);
+        vm.prank(notInstalled);
+        bytes4 result = gate.isValidSignatureWithSender(address(0xBEEF), hash, sig);
+        assertEq(result, bytes4(0xffffffff), "not-installed account should return 0xffffffff");
     }
 }
 
@@ -625,17 +709,17 @@ contract SingleUseTests7579 is ClankerGate7579Test {
         vm.prank(owner);
         gate.setPolicyRoot(address(account), leaf);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
         // Verify replay is blocked - second call should revert
         vm.expectRevert();
-        account.callValidate(address(gate), userOp, userOpHash, guardData);
+        account.callValidate(address(gate), userOp, userOpHash);
     }
 
     function test_SingleUsePermission_RevertOnReplay() public {
@@ -657,19 +741,19 @@ contract SingleUseTests7579 is ClankerGate7579Test {
         vm.prank(owner);
         gate.setPolicyRoot(address(account), leaf);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
         // First execution
-        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
 
         // Verify replay is blocked - second call should revert
         vm.expectRevert();
-        account.callValidate(address(gate), userOp, userOpHash, guardData);
+        account.callValidate(address(gate), userOp, userOpHash);
     }
 }
 
@@ -682,17 +766,18 @@ contract ComputePermissionHashTests is ClankerGate7579Test {
         ParamRule[] memory rules = new ParamRule[](1);
         rules[0] = ParamRule(0, 0, bytes32(uint256(100)), new bytes32[](0));
 
+        // Correct arg order: (target, selector, rules, validAfter, validUntil, chainId, singleUse, maxValue)
         bytes32 hash1 = gate.computePermissionHash(
             address(0x1111),
             0x12345678,
             rules,
-            0,
-            0,
-            0,
-            false,
-            0
+            0,         // validAfter
+            0,         // validUntil
+            0,         // chainId
+            false,     // singleUse
+            0          // maxValue
         );
-        
+
         // Verify consistency - calling with same params gives same hash
         bytes32 hash2 = gate.computePermissionHash(
             address(0x1111),
@@ -704,21 +789,21 @@ contract ComputePermissionHashTests is ClankerGate7579Test {
             false,
             0
         );
-        
+
         assertEq(hash1, hash2);
-        
-        // Verify different params give different hash
+
+        // Verify different params give different hash — pass chainId=1 (correct position)
         bytes32 hash3 = gate.computePermissionHash(
             address(0x1111),
             0x12345678,
             rules,
-            0,
-            0,
-            1,    // maxValue = 1
-            false,
-            0
+            0,         // validAfter
+            0,         // validUntil
+            1,         // chainId = 1 (different)
+            false,     // singleUse
+            0          // maxValue
         );
-        
+
         assertTrue(hash1 != hash3);
     }
 }
@@ -751,11 +836,11 @@ contract AuthorizedCallerTests7579 is ClankerGate7579Test {
         vm.prank(owner);
         gate.setPolicyRoot(address(account), leaf);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
         // msg.sender inside validateUserOp is address(account) != nonMatchingCaller → must revert
         vm.expectRevert(
@@ -765,7 +850,7 @@ contract AuthorizedCallerTests7579 is ClankerGate7579Test {
                 nonMatchingCaller
             )
         );
-        account.callValidate(address(gate), userOp, userOpHash, guardData);
+        account.callValidate(address(gate), userOp, userOpHash);
     }
 
     /// @notice H-2: A permission with authorizedCaller == address(0) must allow any caller
@@ -778,13 +863,13 @@ contract AuthorizedCallerTests7579 is ClankerGate7579Test {
         vm.prank(owner);
         gate.setPolicyRoot(address(account), leaf);
 
-        bytes memory userOp = _encodeUserOp(address(account), 0, hex"12345678");
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(new bytes32[](0), permission, signature);
+        bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        uint256 result = account.callValidate(address(gate), userOp, userOpHash, guardData);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0, "zero authorizedCaller must allow any caller");
     }
 }

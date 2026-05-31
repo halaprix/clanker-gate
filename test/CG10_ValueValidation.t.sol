@@ -94,13 +94,13 @@ contract Mock7579Account is IERC7579Account {
         return _installedModules[moduleTypeId][module];
     }
 
+    /// @notice Call validateUserOp on the 7579 module with a PackedUserOperation (2-arg ERC-7579 form)
     function callValidate(
         address module,
-        bytes calldata userOp,
-        bytes32 userOpHash,
-        bytes calldata guardData
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash
     ) external returns (uint256) {
-        return ClankerGate7579(module).validateUserOp(userOp, userOpHash, guardData);
+        return ClankerGate7579(module).validateUserOp(userOp, userOpHash);
     }
 }
 
@@ -116,11 +116,10 @@ contract CallerWithValue {
 
     function callValidateUserOp7579(
         address gate,
-        bytes calldata userOp,
-        bytes32 userOpHash,
-        bytes calldata guardData
+        PackedUserOperation calldata userOp,
+        bytes32 userOpHash
     ) external payable returns (uint256) {
-        return ClankerGate7579(gate).validateUserOp(userOp, userOpHash, guardData);
+        return ClankerGate7579(gate).validateUserOp(userOp, userOpHash);
     }
 }
 
@@ -453,19 +452,12 @@ contract CG10_7579_ValueValidation is Test {
         account.installModule(MODULE_TYPE_VALIDATOR, address(gate), initData);
     }
 
-    function _encodeUserOp(address sender, bytes memory callData) internal pure returns (bytes memory) {
-        return abi.encode(
-            sender,     // address sender
-            uint256(0),  // uint256 nonce
-            hex"",       // bytes initCode
-            callData,   // bytes callData
-            uint256(0), // uint256 callGasLimit
-            uint256(0), // uint256 verificationGasLimit
-            uint256(0), // uint256 preVerificationGas
-            uint256(0), // uint256 maxFeePerGas
-            uint256(0), // uint256 maxPriorityFeePerGas
-            hex""        // bytes paymasterAndData
-        );
+    function _packUserOp(address sender, bytes memory callData, bytes memory sigField)
+        internal pure returns (PackedUserOperation memory u)
+    {
+        u.sender = sender;
+        u.callData = callData;
+        u.signature = sigField;
     }
 
     function _buildPermission(address target, bytes4 selector, uint256 maxValue)
@@ -504,12 +496,11 @@ contract CG10_7579_ValueValidation is Test {
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(proof, permission, signature);
-
-        bytes memory userOpBytes = _encodeUserOp(address(account), hex"12345678");
+        bytes memory sigField = abi.encode(proof, permission, signature);
 
         // Call directly on account to have msg.sender = account
-        uint256 result = account.callValidate(address(gate), userOpBytes, userOpHash, guardData);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
     }
 
@@ -527,12 +518,11 @@ contract CG10_7579_ValueValidation is Test {
         bytes32 userOpHash = keccak256("test");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        bytes memory guardData = abi.encode(proof, permission, signature);
-
-        bytes memory userOpBytes = _encodeUserOp(address(account), hex"12345678");
+        bytes memory sigField = abi.encode(proof, permission, signature);
 
         // Call directly on account to have msg.sender = account
-        uint256 result = account.callValidate(address(gate), userOpBytes, userOpHash, guardData);
+        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
+        uint256 result = account.callValidate(address(gate), userOp, userOpHash);
         assertEq(result, 0);
     }
 }
