@@ -130,13 +130,13 @@ describe('offset-calculator', () => {
 
       expect(offsets).toHaveLength(2);
       expect(offsets[0].offset).toBe(0);
-      expect(offsets[1].offset).toBe(32);
+      expect(offsets[1].offset).toBe(64);
     });
   });
 
   describe('resolveOffset', () => {
-    const exactInputABI: ABIEntry = {
-      name: 'exactInput',
+    const exactInputSingleABI: ABIEntry = {
+      name: 'exactInputSingle',
       type: 'function',
       inputs: [
         {
@@ -157,13 +157,37 @@ describe('offset-calculator', () => {
       outputs: [{ name: 'amountOut', type: 'uint256' }],
     };
 
-    it('should resolve offset for tuple param (dynamic pointer)', () => {
-      const offset = resolveOffset(exactInputABI, 'params');
-      expect(offset).toBe(0);
+    it('should resolve a field inside a static tuple', () => {
+      expect(resolveOffset(exactInputSingleABI, 'params.amountIn')).toBe(160);
+    });
+
+    it('should reject a composite tuple as a scalar rule target', () => {
+      expect(() => resolveOffset(exactInputSingleABI, 'params')).toThrow(
+        'Cannot constrain composite parameter directly'
+      );
+    });
+
+    it('should reject fields behind a dynamic ABI pointer', () => {
+      const dynamicTupleABI: ABIEntry = {
+        name: 'exactInput',
+        type: 'function',
+        inputs: [{
+          name: 'params',
+          type: 'tuple',
+          components: [
+            { name: 'path', type: 'bytes' },
+            { name: 'amountIn', type: 'uint256' },
+          ],
+        }],
+      };
+
+      expect(() => resolveOffset(dynamicTupleABI, 'params.amountIn')).toThrow(
+        'dynamically located in calldata'
+      );
     });
 
     it('should throw for invalid param path', () => {
-      expect(() => resolveOffset(exactInputABI, 'nonexistent')).toThrow('Parameter not found');
+      expect(() => resolveOffset(exactInputSingleABI, 'nonexistent')).toThrow('Parameter not found');
     });
   });
 

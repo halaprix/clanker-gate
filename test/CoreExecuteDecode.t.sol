@@ -83,6 +83,34 @@ contract CoreExecuteDecodeTest is Test {
         assertEq(extracted, inner, "inner calldata mismatch");
     }
 
+    function test_decode4337Wrapper_zeroTargetStillWrapped() public view {
+        bytes memory inner = hex"aabbccdd";
+        bytes memory cd = _build4337(address(0), 2 ether, inner);
+
+        (
+            ClankerGateCore.ExecKind kind,
+            address gotTarget,
+            ,
+            uint256 innerLength,
+            uint256 gotValue
+        ) = harness.decodeAny(cd);
+
+        assertEq(uint8(kind), uint8(ClankerGateCore.ExecKind.Execute4337));
+        assertEq(gotTarget, address(0));
+        assertEq(gotValue, 2 ether);
+        assertEq(innerLength, inner.length);
+    }
+
+    function test_rejectShort4337Wrapper() public {
+        bytes memory cd = abi.encodePacked(
+            bytes4(keccak256("execute(address,uint256,bytes)")),
+            bytes32(uint256(uint160(address(0xBEEF))))
+        );
+
+        vm.expectRevert(ClankerGateCore.InvalidExecuteEncoding.selector);
+        harness.decodeAny(cd);
+    }
+
     // -------------------------------------------------------------------------
     // test_decode7579Single
     // -------------------------------------------------------------------------
@@ -206,6 +234,22 @@ contract CoreExecuteDecodeTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(ClankerGateCore.UnsupportedExecType.selector, bytes1(0x01))
+        );
+        harness.decodeAny(cd);
+    }
+
+    function test_reject7579CustomMode() public {
+        // single + default, but a non-zero account-specific mode selector.
+        bytes32 mode = bytes32(uint256(0x11223344) << 176);
+        bytes memory executionCalldata = abi.encodePacked(
+            address(0xBEEF),
+            uint256(0),
+            hex"aabbccdd"
+        );
+        bytes memory cd = abi.encodeWithSignature("execute(bytes32,bytes)", mode, executionCalldata);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerGateCore.UnsupportedExecutionMode.selector, mode)
         );
         harness.decodeAny(cd);
     }

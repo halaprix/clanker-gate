@@ -125,7 +125,7 @@ Compiler: parses ABI → resolves selector → resolves struct layout → comput
 | Component | Trusted? | Justification |
 |-----------|----------|--------------|
 | ClankerGate.sol | Yes — trustless | Deterministic on-chain logic, Merkle root immutable |
-| Policy Compiler | No — non-trusted | Bad output → validation fails (safe fail). Cannot escalate privileges. |
+| Policy Compiler | Security-sensitive input tooling | It must reject parameter paths behind dynamic ABI pointers; fixed-offset rules are only sound for statically located words. |
 | Merkle Root | Yes | Set by account owner via `setPolicyRoot()` — out of executor's reach |
 | Global Root (optional) | Depends on operator | Requires trust in publishing entity. Architect decision — see section 6. |
 
@@ -134,6 +134,18 @@ Compiler: parses ABI → resolves selector → resolves struct layout → comput
 - proof invalid → transaction rejected
 - rule mismatch → transaction rejected
 - No partial execution risk — validation is atomic
+
+**Fixed-offset boundary:** Rules may target static scalar ABI words and fields
+inside fully static tuples. Dynamic values and fields behind dynamic tuple/array
+pointers are not safe to compile into a single fixed offset, because
+non-canonical but valid ABI pointers can move the value Solidity decodes. The SDK
+fails closed for these paths; manually authored permissions must do the same.
+
+**Single-use boundary:** In the ERC-4337 and ERC-7579 validators, a single-use
+permission is consumed during validation. A later EntryPoint execution failure
+does not roll that state back, so this is one validation attempt rather than one
+successful execution. Successful-execution semantics require an account-specific
+post-execution hook. Safe module execution is atomic with its validation.
 
 ---
 

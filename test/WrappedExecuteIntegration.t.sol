@@ -240,6 +240,41 @@ contract WrappedExecuteIntegration4337 is WrappedExecuteIntegrationBase {
         );
     }
 
+    function test_4337_directCallCannotReuseExternalTargetPermission() public {
+        bytes memory callData = _inner(0.5 ether);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ClankerGate4337.DirectCallRequiresTargetZero.selector,
+                ROUTER
+            )
+        );
+        gate.validateUserOp(
+            _packUserOp(address(account), callData, _guardData()),
+            userOpHash
+        );
+    }
+
+    function test_4337_zeroTargetWrapperStillEnforcesValue() public {
+        perm.target = address(0);
+        bytes32 leaf = gate.computePermissionHash(address(account), perm, 2);
+        vm.prank(address(account));
+        gate.setPolicyRoot(address(account), leaf);
+
+        bytes memory callData = _wrap4337(address(0), 2 ether, _inner(0.5 ether));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ClankerGate4337.ValueExceedsPermission.selector,
+                uint256(2 ether),
+                uint256(1 ether)
+            )
+        );
+        gate.validateUserOp(
+            _packUserOp(address(account), callData, _guardData()),
+            userOpHash
+        );
+    }
+
     // -----------------------------------------------------------------------
     // 5. ERC-7579 single mode — compliant → passes
     // -----------------------------------------------------------------------
@@ -447,6 +482,19 @@ contract WrappedExecuteIntegration7579 is WrappedExecuteIntegrationBase {
                 ClankerGate7579.TargetMismatch.selector,
                 ROUTER,
                 OTHER
+            )
+        );
+        account.callValidate(address(gate), userOp, userOpHash);
+    }
+
+    function test_7579_directCallCannotReuseExternalTargetPermission() public {
+        PackedUserOperation memory userOp =
+            _packUserOp(address(account), _inner(0.5 ether), _guardData());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ClankerGate7579.DirectCallRequiresTargetZero.selector,
+                ROUTER
             )
         );
         account.callValidate(address(gate), userOp, userOpHash);

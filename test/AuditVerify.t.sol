@@ -109,8 +109,6 @@ contract AuditVerify is Test {
 
     /// Fuzz: for any (addr, value, inner), decode returns the exact inputs back.
     function testFuzz_executeWrapper_roundTrip(address addr, uint256 val, bytes calldata innerData) public view {
-        // Skip the zero address (maps to the "direct" branch, not a useful fuzz target here)
-        vm.assume(addr != address(0));
         // Skip excessively large inner to keep gas bounded
         vm.assume(innerData.length <= 1024);
 
@@ -160,16 +158,17 @@ contract AuditVerify is Test {
         uint256 vd1 = gate.validateUserOp(_packUserOp(address(account), wrapped, guardData), userOpHash);
         assertEq(vd1, 0, "WRAPPED compliant call passes (returns 0 = valid)");
 
-        // (2) Direct (unwrapped) inner call also passes — unchanged behaviour.
-        // Need a fresh nonce: use nonce=2 for the second call.
-        bytes32 leaf2 = gate.computePermissionHash(address(account), p, 2);
+        // (2) Direct account calls require an explicit target-zero permission.
+        Permission memory directPermission = p;
+        directPermission.target = address(0);
+        bytes32 leaf2 = gate.computePermissionHash(address(account), directPermission, 2);
         vm.prank(address(account));
         gate.setPolicyRoot(address(account), leaf2);
         (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(ownerKey, userOpHash);
         bytes memory sig2 = abi.encodePacked(r2, s2, v2);
-        bytes memory guardData2 = abi.encode(proof, p, sig2);
+        bytes memory guardData2 = abi.encode(proof, directPermission, sig2);
         uint256 vd2 = gate.validateUserOp(_packUserOp(address(account), innerCompliant, guardData2), userOpHash);
-        assertEq(vd2, 0, "direct (unwrapped) inner call passes");
+        assertEq(vd2, 0, "explicit target-zero direct call passes");
     }
 
     /// FIX (H-1): _getOwner() now uses owner() (0x8da5cb5b) as the sole selector and ignores
@@ -193,9 +192,11 @@ contract AuditVerify is Test {
         bytes memory sig = abi.encodePacked(r, s, v);
         bytes memory guardData = abi.encode(proof, p, sig);
         bytes memory inner = abi.encodeWithSelector(INNER_SEL, uint256(0.5 ether));
+        bytes memory wrapped =
+            abi.encodeWithSignature("execute(address,uint256,bytes)", ROUTER, uint256(0), inner);
 
         // After the fix: _getOwner returns the real owner (not IMPL=0xBEEF), so validation succeeds.
-        uint256 result = gate.validateUserOp(_packUserOp(address(proxyAcct), inner, guardData), userOpHash);
+        uint256 result = gate.validateUserOp(_packUserOp(address(proxyAcct), wrapped, guardData), userOpHash);
         assertEq(result, 0, "owner-signed op must pass (0 = valid)");
     }
 
@@ -230,7 +231,9 @@ contract AuditVerify is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
         bytes memory sig = abi.encodePacked(r, s, v);
         bytes memory guardData = abi.encode(proof, p, sig);
-        bytes memory callData = abi.encodeWithSelector(INNER_SEL, uint256(0));
+        bytes memory inner = abi.encodeWithSelector(INNER_SEL, uint256(0));
+        bytes memory callData =
+            abi.encodeWithSignature("execute(address,uint256,bytes)", ROUTER, uint256(0), inner);
 
         vm.expectRevert(
             abi.encodeWithSelector(ClankerGate4337.AccountHasNoOwner.selector, address(noOwnerAcct))

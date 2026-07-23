@@ -72,13 +72,33 @@ export function resolveOffset(abiFunction: ABIEntry, paramPath: string): number 
     throw new Error(`Parameter not found: ${firstPart}`);
   }
 
+  const input = abiFunction.inputs.find((i) => i.name === firstPart);
+  if (!input) {
+    throw new Error(`Parameter not found: ${firstPart}`);
+  }
+
   if (restParts.length === 0) {
+    if (isDynamicType(input.type, input.components)) {
+      throw new Error(
+        `Cannot safely constrain dynamic parameter: ${paramPath}. ` +
+        'Fixed-offset rules would compare its ABI pointer, not its decoded value.'
+      );
+    }
+    if (input.type === 'tuple' || input.components) {
+      throw new Error(
+        `Cannot constrain composite parameter directly: ${paramPath}. Select a static field instead.`
+      );
+    }
     return paramInfo.offset;
   }
 
   if (paramInfo.type === 'tuple') {
-    const input = abiFunction.inputs.find((i) => i.name === firstPart);
-    if (input?.components) {
+    if (isDynamicType(input.type, input.components)) {
+      throw new Error(
+        `Cannot safely resolve ${paramPath}: ${firstPart} is dynamically located in calldata.`
+      );
+    }
+    if (input.components) {
       return resolveTupleOffset(input.components, restParts, paramInfo.offset);
     }
   }
@@ -102,13 +122,30 @@ function resolveTupleOffset(
     throw new Error(`Tuple component not found: ${currentPart}`);
   }
 
+  const component = components.find((c) => c.name === currentPart);
+  if (!component) {
+    throw new Error(`Tuple component not found: ${currentPart}`);
+  }
+
+  if (isDynamicType(component.type, component.components)) {
+    throw new Error(
+      `Cannot safely constrain dynamic tuple field: ${path.join('.')}. ` +
+      'Fixed-offset rules would compare an ABI pointer, not its decoded value.'
+    );
+  }
+
   const currentOffset = baseOffset + paramInfo.offset;
 
   if (remainingParts.length === 0) {
+    if (component.type === 'tuple' || component.components) {
+      throw new Error(
+        `Cannot constrain composite parameter directly: ${path.join('.')}. ` +
+        'Select a static field instead.'
+      );
+    }
     return currentOffset;
   }
 
-  const component = components.find((c) => c.name === currentPart);
   if (component?.type === 'tuple' && component.components) {
     return resolveTupleOffset(component.components, remainingParts, currentOffset);
   }
@@ -118,7 +155,8 @@ function resolveTupleOffset(
 
 /**
  * Computes byte offsets for all parameters in an ABI parameter list.
- * Each parameter occupies 32 bytes in the ABI-encoded calldata.
+ * Dynamic parameters occupy one 32-byte head word. Static tuples are encoded
+ * inline and occupy the sum of their component head sizes.
  * 
  * @param params - Array of ABI parameters
  * @returns Array of parameter info with computed offsets
@@ -132,9 +170,17 @@ export function computeParamOffsets(params: readonly ABIParam[]): readonly Param
       type: param.type,
       offset,
     };
-    offset += 32;
+    offset += getParameterHeadSize(param);
     return info;
   });
+}
+
+function getParameterHeadSize(param: ABIParam): number {
+  if (isDynamicType(param.type, param.components)) return 32;
+  if (param.type === 'tuple' && param.components) {
+    return getTupleStaticSize(param.components);
+  }
+  return 32;
 }
 
 /**

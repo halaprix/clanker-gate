@@ -861,6 +861,17 @@
   },
   {
     "type": "error",
+    "name": "InvalidOperation",
+    "inputs": [
+      {
+        "name": "operation",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidOperator",
     "inputs": [
       {

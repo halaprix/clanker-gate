@@ -26,7 +26,7 @@ describe('merkle-builder', () => {
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
         rules: [
-          { paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') },
+          { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
       });
 
@@ -43,7 +43,7 @@ describe('merkle-builder', () => {
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
         rules: [
-          { paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') },
+          { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
       });
 
@@ -52,7 +52,7 @@ describe('merkle-builder', () => {
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInputSingle',
         rules: [
-          { paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') },
+          { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
       });
 
@@ -68,7 +68,7 @@ describe('merkle-builder', () => {
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
         rules: [
-          { paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') },
+          { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
       });
 
@@ -77,7 +77,7 @@ describe('merkle-builder', () => {
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
         rules: [
-          { paramPath: 'params', op: OP.LTE, value: BigInt('2000000000000000000') },
+          { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('2000000000000000000') },
         ],
       });
 
@@ -123,7 +123,7 @@ describe('merkle-builder', () => {
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
         rules: [
-          { paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') },
+          { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
       });
 
@@ -142,14 +142,14 @@ describe('merkle-builder', () => {
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
-        rules: [{ paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') }],
+        rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
       const permission2 = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInputSingle',
-        rules: [{ paramPath: 'params', op: OP.LTE, value: BigInt('500000000000000000') }],
+        rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('500000000000000000') }],
       });
 
       const builder = createMerkleTreeBuilder(TEST_CONFIG);
@@ -175,7 +175,7 @@ describe('merkle-builder', () => {
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
-        rules: [{ paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') }],
+        rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
       const builder = createMerkleTreeBuilder(TEST_CONFIG);
@@ -196,7 +196,7 @@ describe('merkle-builder', () => {
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
-        rules: [{ paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') }],
+        rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
       const builder = createMerkleTreeBuilder(TEST_CONFIG);
@@ -213,14 +213,14 @@ describe('merkle-builder', () => {
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
-        rules: [{ paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') }],
+        rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
       const permission2 = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInputSingle',
-        rules: [{ paramPath: 'params', op: OP.LTE, value: BigInt('500000000000000000') }],
+        rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('500000000000000000') }],
       });
 
       const builder = createMerkleTreeBuilder(TEST_CONFIG);
@@ -240,7 +240,7 @@ describe('merkle-builder', () => {
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
-        rules: [{ paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') }],
+        rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
       const builder = createMerkleTreeBuilder(TEST_CONFIG);
@@ -257,7 +257,7 @@ describe('merkle-builder', () => {
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInput',
-        rules: [{ paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') }],
+        rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
       const builder = createMerkleTreeBuilder(TEST_CONFIG);

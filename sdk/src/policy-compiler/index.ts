@@ -25,9 +25,16 @@ import { resolveOffset, computeSelector, toHex32 } from './offset-calculator.js'
  * ```
  */
 export function compilePolicy(config: PolicyConfig): Permission {
-  const func = config.abi.find(
+  const matchingFunctions = config.abi.filter(
     (e) => e.type === 'function' && e.name === config.functionName
   );
+  if (matchingFunctions.length > 1) {
+    throw new Error(
+      `Ambiguous overloaded function: ${config.functionName}. ` +
+      'Pass an ABI containing only the intended overload.'
+    );
+  }
+  const func = matchingFunctions[0];
 
   if (!func?.inputs) {
     throw new Error(`Function not found in ABI: ${config.functionName}`);

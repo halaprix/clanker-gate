@@ -168,6 +168,23 @@ const perm = permission(
 | `lte(value)` | Less than or equal | `.lte(BigInt(100))` |
 | `in(values[])` | Value in set | `.in([addr1, addr2, addr3])` |
 
+### Fixed-offset safety
+
+On-chain rules compare 32-byte words at fixed calldata offsets. The SDK therefore
+only compiles rules for statically located scalar parameters and fields inside
+fully static tuples. It rejects `bytes`, `string`, arrays, and fields behind a
+dynamic tuple pointer: comparing those with a fixed offset would inspect an ABI
+pointer or a canonical sample layout rather than the value Solidity eventually
+decodes.
+
+Manually constructed `Permission` values must follow the same restriction.
+
+For the ERC-4337 and ERC-7579 validators, `singleUse` means one successful
+validation attempt, not one successful downstream execution. EntryPoint
+execution failure does not roll back state written during validation. Use the
+Safe module when validation and execution must be atomic, or add an
+account-specific post-execution hook.
+
 ### OP_IN - Multiple Allowed Values
 
 ```typescript

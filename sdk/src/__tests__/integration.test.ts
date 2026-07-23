@@ -20,7 +20,7 @@ describe('integration', () => {
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
         .fn('exactInput')
-        .where('params')
+        .where('params.amountIn')
         .lte(BigInt('1000000000000000000'))
         .build();
 
@@ -34,7 +34,7 @@ describe('integration', () => {
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
         .fn('exactInput')
-        .where('params')
+        .where('params.amountIn')
         .lte(BigInt('1000000000000000000'))
         .build();
 
@@ -54,7 +54,7 @@ describe('integration', () => {
         UNISWAP_V3_ROUTER_ABI,
         '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         'exactInput',
-        [{ paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') }]
+        [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }]
       );
 
       expect(perm.target).toBe('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45');
@@ -194,28 +194,28 @@ describe('integration', () => {
         UNISWAP_V3_ROUTER_ABI,
         '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         'exactInput',
-        [{ paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') }]
+        [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }]
       );
 
       const perm2 = permission(
         UNISWAP_V3_ROUTER_ABI,
         '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         'exactInputSingle',
-        [{ paramPath: 'params', op: OP.LTE, value: BigInt('2000000000000000000') }]
+        [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('2000000000000000000') }]
       );
 
       const perm3 = permission(
         UNISWAP_V3_ROUTER_ABI,
         '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         'exactOutput',
-        [{ paramPath: 'params', op: OP.LTE, value: BigInt('3000000000000000000') }]
+        [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('3000000000000000000') }]
       );
 
       const perm4 = permission(
         UNISWAP_V3_ROUTER_ABI,
         '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         'exactOutputSingle',
-        [{ paramPath: 'params', op: OP.LTE, value: BigInt('4000000000000000000') }]
+        [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('4000000000000000000') }]
       );
 
       builder.addPermission(perm1);

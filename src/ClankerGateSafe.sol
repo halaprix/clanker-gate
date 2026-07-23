@@ -116,6 +116,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
     error MustBeCalledDirectlyBySafe();
     error UnauthorizedCallerForPermission(address caller, address expected);
+    error InvalidOperation(uint8 operation);
 
     /// @notice Sets the policy root for a Safe (only callable by Safe or owner)
     /// @param safe The Safe address
@@ -295,6 +296,10 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         // Validate target
         if (to != permission.target) {
             revert TargetMismatch(permission.target, to);
+        }
+
+        if (operation > 1) {
+            revert InvalidOperation(operation);
         }
 
         // Check DELEGATECALL whitelist (CG-20b: versioned to invalidate on rotation)
