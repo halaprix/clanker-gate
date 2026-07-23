@@ -22,6 +22,11 @@
   },
   {
     "type": "error",
+    "name": "InvalidExecutionCalldata",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidOperator",
     "inputs": [
       {
@@ -97,6 +102,39 @@
         "name": "maxAllowed",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedCallType",
+    "inputs": [
+      {
+        "name": "callType",
+        "type": "bytes1",
+        "internalType": "bytes1"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedExecType",
+    "inputs": [
+      {
+        "name": "execType",
+        "type": "bytes1",
+        "internalType": "bytes1"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedExecutionMode",
+    "inputs": [
+      {
+        "name": "mode",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ]
   },

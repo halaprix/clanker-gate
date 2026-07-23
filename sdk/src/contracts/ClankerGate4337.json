@@ -871,6 +871,17 @@
   },
   {
     "type": "error",
+    "name": "UnsupportedExecutionMode",
+    "inputs": [
+      {
+        "name": "mode",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ValueExceedsPermission",
     "inputs": [
       {

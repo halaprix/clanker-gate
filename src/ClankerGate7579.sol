@@ -355,7 +355,7 @@ contract ClankerGate7579 {
         bytes memory callData = userOp.callData;
 
         // Decode execute() wrapper — supports both execute(address,uint256,bytes) and ERC-7579 single-call
-        (, address actualTarget, uint256 innerOffset, uint256 innerLength, uint256 callValue) =
+        (ClankerGateCore.ExecKind execKind, address actualTarget, uint256 innerOffset, uint256 innerLength, uint256 callValue) =
             ClankerGateCore.decodeAnyExecuteMemory(callData);
 
         // CG-10: Validate callValue against permission.maxValue
@@ -363,9 +363,15 @@ contract ClankerGate7579 {
             revert ValueExceedsPermission(callValue, permission.maxValue);
         }
 
-        // Validate target - for execute() wrapper, check target matches
-        // For direct calls, we cannot extract target from calldata, so we skip this check
-        if (actualTarget != address(0) && actualTarget != permission.target) {
+        // A direct call executes against the account itself. It must be explicitly
+        // authorized with target == address(0); otherwise a selector collision on
+        // the account could reuse a permission intended for an external protocol.
+        if (execKind == ClankerGateCore.ExecKind.Direct && permission.target != address(0)) {
+            revert DirectCallRequiresTargetZero(permission.target);
+        }
+
+        // Wrapped calls always have an explicit target, including address(0).
+        if (execKind != ClankerGateCore.ExecKind.Direct && actualTarget != permission.target) {
             revert TargetMismatch(permission.target, actualTarget);
         }
 

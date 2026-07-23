@@ -253,9 +253,8 @@ library ClankerGateCore {
     }
 
     /// @notice Computes the keccak256 hash of a permission
-    /// @dev Uses domain separator to prevent cross-contract replay and double-hashing 
-    ///      to prevent second pre-image attacks on Merkle tree. Rules are hashed individually
-    ///      to ensure canonical encoding (reordering doesn't change the hash).
+    /// @dev Uses domain separation to prevent cross-contract replay. Rules are hashed
+    ///      individually and their order remains part of the permission hash.
     function hashPermission(Permission memory permission) internal view returns (bytes32) {
         bytes32 domainSeparator = keccak256(abi.encode(
             DOMAIN_SEPARATOR_TYPEHASH,
@@ -269,11 +268,22 @@ library ClankerGateCore {
 
     /// @notice Computes the keccak256 hash of a permission using a pre-computed domainSeparator
     /// @dev Use this overload when domainSeparator is cached as immutable to save gas.
-    ///      Rules are hashed individually to ensure canonical encoding (reordering doesn't change the hash).
+    ///      Rules are hashed individually and their order remains significant.
     function hashPermission(Permission memory permission, bytes32 domainSeparator) internal pure returns (bytes32) {
+        // Enforce the same shape limits before hashing that calldata validation
+        // enforces later. Merkle verification happens before rule evaluation, so
+        // leaving these checks until validateCallData* lets an untrusted UserOp
+        // force unbounded hashing of rules / nested values during validation.
+        if (permission.rules.length > MAX_RULES) {
+            revert TooManyRules(permission.rules.length, MAX_RULES);
+        }
+
         bytes32[] memory ruleHashes = new bytes32[](permission.rules.length);
         for (uint256 i; i < permission.rules.length; ++i) {
             ParamRule memory rule = permission.rules[i];
+            if (rule.values.length > MAX_IN_VALUES) {
+                revert TooManyValues(rule.values.length, MAX_IN_VALUES);
+            }
             ruleHashes[i] = keccak256(abi.encode(rule.offset, rule.op, rule.value, rule.values));
         }
 
@@ -296,6 +306,7 @@ library ClankerGateCore {
     /// @dev Prevents cross-account singleUse collision attacks
     /// @param account The account address to scope the permission to
     /// @param permission The permission to hash
+    /// @param nonce The policy/install epoch to scope the permission to
     function hashPermissionWithAccount(address account, Permission memory permission, uint256 nonce) internal view returns (bytes32) {
         return keccak256(abi.encode(account, hashPermission(permission), nonce));
     }
@@ -314,7 +325,9 @@ library ClankerGateCore {
     }
 
     /// @notice Decodes execute() wrapper (memory version)
-    /// @dev Returns (address(0), 0, callData.length, 0) for non-execute calls
+    /// @dev Returns (address(0), 0, callData.length, 0) for non-execute calls.
+    ///      A recognized execute selector is always decoded or reverted, including
+    ///      when its target is address(0).
     function decodeExecuteCallMemory(bytes memory callData)
         internal
         pure
@@ -329,7 +342,9 @@ library ClankerGateCore {
             selector := mload(add(callData, 32))
         }
 
-        if (selector == EXECUTE_SELECTOR && callData.length >= 132) {
+        if (selector == EXECUTE_SELECTOR) {
+            if (callData.length < 132) revert InvalidExecuteEncoding();
+
             bytes20 targetBytes;
             uint256 dataOffset;
             bytes12 padding;
@@ -402,11 +417,6 @@ library ClankerGateCore {
         if (selector == EXECUTE_SELECTOR) {
             // Reuse the existing execute(address,uint256,bytes) memory decoder.
             (target, innerOffset, innerLength, value) = decodeExecuteCallMemory(callData);
-            // decodeExecuteCallMemory returns address(0) when the payload is too short
-            // or not an execute() call. Treat non-zero target as Execute4337.
-            if (target == address(0)) {
-                return (ExecKind.Direct, address(0), 0, callData.length, 0);
-            }
             return (ExecKind.Execute4337, target, innerOffset, innerLength, value);
         }
 
@@ -432,6 +442,13 @@ library ClankerGateCore {
                 revert UnsupportedCallType(callType);
             }
             if (callType != CALLTYPE_SINGLE) revert UnsupportedCallType(callType);
+
+            // The remaining 30 bytes select account-specific execution modes.
+            // Their semantics are not portable across ERC-7579 accounts, so this
+            // generic validator can only safely model the basic zero mode.
+            if (uint256(mode) & type(uint240).max != 0) {
+                revert UnsupportedExecutionMode(mode);
+            }
 
             // executionCalldata length word is at position: 4 + execOffset
             uint256 lenPos = 4 + execOffset;
@@ -476,5 +493,6 @@ library ClankerGateCore {
     error ValueExceedsPermission(uint256 value, uint256 maxValue);
     error UnsupportedCallType(bytes1 callType);
     error UnsupportedExecType(bytes1 execType);
+    error UnsupportedExecutionMode(bytes32 mode);
     error InvalidExecutionCalldata();
 }

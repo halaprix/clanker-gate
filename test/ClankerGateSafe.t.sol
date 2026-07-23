@@ -1112,6 +1112,32 @@ contract DelegatecallValueTests is ClankerGateSafeTest {
         assertEq(address(gate).balance, 0);
     }
 
+    function test_RevertWhen_OperationIsOutsideSafeEnum() public {
+        Permission memory permission;
+        permission.target = address(0x1111);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](0);
+
+        bytes32 leaf =
+            gate.computePermissionHash(address(safe), permission, gate.nonces(address(safe)) + 1);
+        vm.prank(address(safe));
+        gate.setPolicyRoot(address(safe), leaf);
+
+        vm.prank(caller);
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerGateSafe.InvalidOperation.selector, uint8(2))
+        );
+        gate.execTransaction(
+            address(safe),
+            address(0x1111),
+            0,
+            hex"12345678",
+            2,
+            new bytes32[](0),
+            permission
+        );
+    }
+
     /// @notice The value PARAMETER (sourced from the Safe's balance) still enforces maxValue.
     function test_RevertWhen_DelegatecallValueExceedsMaxValue() public {
         // Whitelist target for DELEGATECALL (must be done AFTER setPolicyRoot as it resets nonce)

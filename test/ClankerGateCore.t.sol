@@ -48,6 +48,37 @@ contract ClankerGateCoreTest is Test {
         assertTrue(hash != bytes32(0));
     }
 
+    function test_HashPermission_RejectsTooManyRulesBeforeMerkleVerification() public {
+        ClankerGateCoreWrapper wrapper = new ClankerGateCoreWrapper();
+        Permission memory permission;
+        permission.rules = new ParamRule[](11);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ClankerGateCore.TooManyRules.selector,
+                uint256(11),
+                uint8(10)
+            )
+        );
+        wrapper.hashPermissionWrapped(permission);
+    }
+
+    function test_HashPermission_RejectsOversizedNestedValues() public {
+        ClankerGateCoreWrapper wrapper = new ClankerGateCoreWrapper();
+        Permission memory permission;
+        permission.rules = new ParamRule[](1);
+        permission.rules[0].values = new bytes32[](21);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ClankerGateCore.TooManyValues.selector,
+                uint256(21),
+                uint256(20)
+            )
+        );
+        wrapper.hashPermissionWrapped(permission);
+    }
+
     function test_CompareRule_EQ() public pure {
         assertTrue(ClankerGateCore.compareRule(OP_EQ, bytes32(uint256(100)), bytes32(uint256(100)), new bytes32[](0)));
         assertFalse(ClankerGateCore.compareRule(OP_EQ, bytes32(uint256(100)), bytes32(uint256(101)), new bytes32[](0)));

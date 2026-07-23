@@ -5,13 +5,13 @@ import { OP } from '../types/index.js';
 
 describe('policy-compiler', () => {
   describe('compilePolicy', () => {
-    it('should compile policy for exactInput with amountIn rule', () => {
+    it('should compile policy for exactInputSingle with amountIn rule', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
-          { paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') },
+          { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
       });
 
@@ -19,6 +19,7 @@ describe('policy-compiler', () => {
       expect(permission.selector).toMatch(/^0x[a-f0-9]{8}$/);
       expect(permission.rules).toHaveLength(1);
       expect(permission.rules[0].op).toBe(OP.LTE);
+      expect(permission.rules[0].offset).toBe(160);
     });
 
     it('should compile policy with multiple rules', () => {
@@ -27,8 +28,8 @@ describe('policy-compiler', () => {
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         functionName: 'exactInputSingle',
         rules: [
-          { paramPath: 'params', op: OP.LTE, value: BigInt('1000000000000000000') },
-          { paramPath: 'params', op: OP.GTE, value: BigInt('100000000000000000') },
+          { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
+          { paramPath: 'params.amountIn', op: OP.GTE, value: BigInt('100000000000000000') },
         ],
       });
 
@@ -43,15 +44,41 @@ describe('policy-compiler', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
-          { paramPath: 'params', op: OP.EQ, value: recipientAddress },
+          { paramPath: 'params.recipient', op: OP.EQ, value: recipientAddress },
         ],
       });
 
       expect(permission.rules[0].op).toBe(OP.EQ);
       expect(permission.rules[0].value).toMatch(/^0x[a-f0-9]{64}$/);
       expect(permission.rules[0].value.endsWith(recipientAddress.slice(2))).toBe(true);
+    });
+
+    it('should reject rules behind dynamic tuple pointers', () => {
+      const dynamicTupleABI = [{
+        name: 'exactInput',
+        type: 'function',
+        inputs: [{
+          name: 'params',
+          type: 'tuple',
+          components: [
+            { name: 'path', type: 'bytes' },
+            { name: 'amountIn', type: 'uint256' },
+          ],
+        }],
+      }] as const;
+
+      expect(() =>
+        compilePolicy({
+          abi: dynamicTupleABI,
+          target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
+          functionName: 'exactInput',
+          rules: [
+            { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt(1) },
+          ],
+        })
+      ).toThrow('dynamically located in calldata');
     });
 
     it('should throw for invalid function name', () => {
@@ -71,8 +98,8 @@ describe('policy-compiler', () => {
       const permission = createPolicyBuilder(UNISWAP_V3_ROUTER_ABI)
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
-        .fn('exactInput')
-        .where('params')
+        .fn('exactInputSingle')
+        .where('params.amountIn')
         .lte(BigInt('1000000000000000000'))
         .build();
 
@@ -86,9 +113,9 @@ describe('policy-compiler', () => {
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
         .fn('exactInputSingle')
-        .where('params')
+        .where('params.amountIn')
         .lte(BigInt('1000000000000000000'))
-        .where('params')
+        .where('params.amountIn')
         .gte(BigInt('100000000000000000'))
         .build();
 
@@ -117,8 +144,8 @@ describe('policy-compiler', () => {
       const permEQ = createPolicyBuilder(UNISWAP_V3_ROUTER_ABI)
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
-        .fn('exactInput')
-        .where('params')
+        .fn('exactInputSingle')
+        .where('params.amountIn')
         .eq(BigInt(100))
         .build();
       expect(permEQ.rules[0].op).toBe(OP.EQ);
@@ -126,8 +153,8 @@ describe('policy-compiler', () => {
       const permGT = createPolicyBuilder(UNISWAP_V3_ROUTER_ABI)
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
-        .fn('exactInput')
-        .where('params')
+        .fn('exactInputSingle')
+        .where('params.amountIn')
         .gt(BigInt(100))
         .build();
       expect(permGT.rules[0].op).toBe(OP.GT);
@@ -135,8 +162,8 @@ describe('policy-compiler', () => {
       const permLT = createPolicyBuilder(UNISWAP_V3_ROUTER_ABI)
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
-        .fn('exactInput')
-        .where('params')
+        .fn('exactInputSingle')
+        .where('params.amountIn')
         .lt(BigInt(100))
         .build();
       expect(permLT.rules[0].op).toBe(OP.LT);
@@ -144,8 +171,8 @@ describe('policy-compiler', () => {
       const permGTE = createPolicyBuilder(UNISWAP_V3_ROUTER_ABI)
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
-        .fn('exactInput')
-        .where('params')
+        .fn('exactInputSingle')
+        .where('params.amountIn')
         .gte(BigInt(100))
         .build();
       expect(permGTE.rules[0].op).toBe(OP.GTE);
@@ -153,8 +180,8 @@ describe('policy-compiler', () => {
       const permLTE = createPolicyBuilder(UNISWAP_V3_ROUTER_ABI)
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
-        .fn('exactInput')
-        .where('params')
+        .fn('exactInputSingle')
+        .where('params.amountIn')
         .lte(BigInt(100))
         .build();
       expect(permLTE.rules[0].op).toBe(OP.LTE);
