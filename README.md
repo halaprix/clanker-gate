@@ -8,6 +8,8 @@ ________            __             ______      __
 
 **Stateful Transaction Validator for Smart Accounts**
 
+> ⚠️ **UNAUDITED — USE AT YOUR OWN RISK.** This code has **not** undergone a professional security audit. It controls access to on-chain funds; bugs can lead to **irreversible loss of assets**. Do not use it to guard accounts holding value you cannot afford to lose. See the full [Disclaimer](#disclaimer) below.
+
 ClankerGate is a validation module that enables defining granular transaction policies without giving external executors full private key access. It acts as a "guard" for various types of Smart Accounts, verifying on-chain whether operations fall within defined boundaries.
 
 ## Implementations
@@ -440,6 +442,21 @@ cd sdk && pnpm test
 - `ARCHITECTURE.md` - Detailed architecture and design decisions
 - SDK TSDoc - API documentation in code
 
+## Disclaimer
+
+**This software is experimental and has not been audited.**
+
+- **No security audit.** Neither the smart contracts nor the SDK have been reviewed by a professional security auditor. Known and unknown vulnerabilities may exist, including ones that allow **total loss of funds** in guarded accounts.
+- **No warranty.** The software is provided **"AS IS"**, without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement (see the MIT License below).
+- **Use at your own risk and responsibility.** You are solely responsible for evaluating the code, testing it against your own threat model, and for any consequences of deploying or interacting with it — including lost, stolen, or frozen assets, failed transactions, and gas costs.
+- **No liability.** In no event shall the authors, contributors, or copyright holders be liable for any claim, damages, or other liability arising from the use of this software.
+- **Not financial, legal, or security advice.** Nothing in this repository constitutes advice of any kind. Deploying smart contracts and delegating transaction authority may be subject to laws and regulations in your jurisdiction — compliance is your responsibility.
+- **Immutability warning.** Smart contracts, once deployed, may be impossible to patch. A policy that compiles and validates today may still not express what you intended — always verify permissions against real calldata before trusting them with value.
+
+If you intend to use ClankerGate in production, commission an independent security audit first.
+
 ## License
 
-MIT
+MIT — see the warranty and liability disclaimers above, which restate the license's terms:
+
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
