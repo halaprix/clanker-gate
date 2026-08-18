@@ -83,39 +83,6 @@ export * from './simulator/index.js';
 export * from './abi-converter/index.js';
 export * from './contracts/index.js';
 export * from './clients/index.js';
-export {
-  Operator,
-  type OperatorType,
-  OperatorSymbol,
-  isOperator,
-  compare,
-  Selector as DomainSelector,
-  InvalidSelectorError,
-  Offset,
-  InvalidOffsetError as OffsetError,
-  ValidationResult as DomainValidationResult,
-  ValidationError as DomainValidationError,
-  ValidationErrorCode as DomainValidationErrorCode,
-  ParamRule as DomainParamRule,
-  type ParamRuleProps,
-  Permission as DomainPermission,
-  type PermissionProps,
-  CalldataTooShortError,
-  SelectorMismatchError,
-  CalldataOutOfRangeError,
-  RuleViolationError,
-  RootNotSetError,
-  InvalidProofError,
-  UnauthorizedSignerError,
-} from './domain/index.js';
-export type {
-  MerkleProof,
-  HashPermissionPort,
-  MerkleTreePort,
-  CalldataValidatorPort,
-  SignatureValidatorPort,
-  ABIResolverPort,
-} from './domain/index.js';
 
 /**
  * Main API object for ClankerGate SDK.
