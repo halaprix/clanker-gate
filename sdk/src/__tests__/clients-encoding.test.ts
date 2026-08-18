@@ -11,7 +11,7 @@
  * ParamRule has exactly FOUR fields: offset, op, value, values[]
  */
 import { describe, it, expect } from 'vitest';
-import { encodeAbiParameters, decodeAbiParameters, parseAbiParameters, zeroAddress } from 'viem';
+import { decodeAbiParameters, parseAbiParameters, zeroAddress } from 'viem';
 import type { Permission } from '../types/index.js';
 import { OP } from '../types/index.js';
 import { packUserOpSignature, decodePackedSignature, PACKED_SIG_ABI } from '../clients/guardData.js';
@@ -145,30 +145,8 @@ describe('packUserOpSignature round-trip', () => {
 // ---------------------------------------------------------------------------
 
 describe('client encoding field order', () => {
-  it('positional ABI round-trip preserves all 4 rule fields with correct field order', () => {
+  it('codec output decodes positionally with all 4 rule fields in correct field order', () => {
     const permission = buildTestPermission();
-
-    // Build the positional tuple in NEW on-chain order:
-    //   (target, selector, validAfter, validUntil, singleUse, chainId,
-    //    maxValue, authorizedCaller, rules[])
-    const rulesEncoded = permission.rules.map((rule) => [
-      BigInt(rule.offset),
-      rule.op,
-      rule.value,
-      rule.values ?? [],
-    ] as const);
-
-    const permissionTuple = [
-      permission.target,
-      permission.selector,
-      permission.validAfter ?? 0,
-      permission.validUntil ?? 0,
-      permission.singleUse ?? false,
-      BigInt(permission.chainId ?? 0),
-      permission.maxValue ?? 0n,
-      permission.authorizedCaller ?? zeroAddress,
-      rulesEncoded,
-    ] as const;
 
     const proof: `0x${string}`[] = [
       '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -176,10 +154,10 @@ describe('client encoding field order', () => {
     ];
     const signature = '0xdeadbeef' as `0x${string}`;
 
-    const encoded = encodeAbiParameters(
-      GUARD_DATA_ABI_POSITIONAL,
-      [proof, permissionTuple, signature]
-    );
+    // Encode through the PRODUCTION path (packUserOpSignature → permission-codec),
+    // then decode with an independently hand-written positional ABI. This pins
+    // the codec's field order, not a locally re-declared one.
+    const encoded = packUserOpSignature({ proof, permission, ownerSignature: signature });
 
     const [decodedProof, decodedPerm, decodedSig] = decodeAbiParameters(
       GUARD_DATA_ABI_POSITIONAL,
@@ -226,7 +204,7 @@ describe('client encoding field order', () => {
     expect(rule1).toHaveLength(4);  // EXACTLY 4 fields
   });
 
-  it('encodes a permission with no rules and default optional fields (positional)', () => {
+  it('applies codec defaults for optional fields (positional decode)', () => {
     const permission = buildTestPermission({
       rules: [],
       singleUse: undefined,
@@ -234,22 +212,7 @@ describe('client encoding field order', () => {
       authorizedCaller: undefined,
     });
 
-    const permissionTuple = [
-      permission.target,
-      permission.selector,
-      permission.validAfter ?? 0,
-      permission.validUntil ?? 0,
-      permission.singleUse ?? false,
-      BigInt(permission.chainId ?? 0),
-      permission.maxValue ?? 0n,
-      permission.authorizedCaller ?? zeroAddress,
-      [] as readonly (readonly [bigint, number, `0x${string}`, readonly `0x${string}`[]])[],
-    ] as const;
-
-    const encoded = encodeAbiParameters(
-      GUARD_DATA_ABI_POSITIONAL,
-      [[], permissionTuple, '0x']
-    );
+    const encoded = packUserOpSignature({ proof: [], permission, ownerSignature: '0x' });
 
     const [, decodedPerm] = decodeAbiParameters(GUARD_DATA_ABI_POSITIONAL, encoded);
 

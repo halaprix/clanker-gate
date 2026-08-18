@@ -6,57 +6,29 @@ import {
   type WalletClient,
   type PublicClient,
   type Chain,
-  encodeFunctionData,
+  type Abi,
 } from 'viem';
 import { ClankerGate4337ABI } from '../contracts/index.js';
 import type { Permission } from '../types/index.js';
-import { packUserOpSignature } from './guardData.js';
+import { toOnChainStruct } from './permission-codec.js';
+import {
+  createGateClientBase,
+  type GateClientConfig,
+  type PackedUserOperation,
+  type ValidateUserOpGuardParams,
+} from './base.js';
 
 export type { Address, Hash, Hex, Account, WalletClient, PublicClient, Chain };
+export type { PackedUserOperation };
 
-export interface ClankerGate4337ClientConfig {
-  address: Address;
-  publicClient: PublicClient;
-  walletClient?: WalletClient;
-  chain?: Chain | null;
-}
+export type ClankerGate4337ClientConfig = GateClientConfig;
 
 export interface SetPolicyRootParams {
   account: Address | Account;
   root: Hash;
 }
 
-/**
- * PackedUserOperation as defined in ERC-4337 v0.7.
- *
- * The gas fields are packed into two bytes32 values:
- *   accountGasLimits = callGasLimit (hi 128 bits) | verificationGasLimit (lo 128 bits)
- *   gasFees          = maxPriorityFeePerGas (hi) | maxFeePerGas (lo)
- */
-export interface PackedUserOperation {
-  sender: Address;
-  nonce: bigint;
-  initCode: Hex;
-  callData: Hex;
-  /** callGasLimit (hi 128 bits) | verificationGasLimit (lo 128 bits) */
-  accountGasLimits: Hash;
-  preVerificationGas: bigint;
-  /** maxPriorityFeePerGas (hi 128 bits) | maxFeePerGas (lo 128 bits) */
-  gasFees: Hash;
-  paymasterAndData: Hex;
-  /** MUST contain abi.encode(bytes32[] proof, Permission permission, bytes ownerSig) */
-  signature: Hex;
-}
-
-export interface ValidateUserOpParams {
-  userOp: PackedUserOperation;
-  userOpHash: Hash;
-  guardData: {
-    proof: readonly Hash[];
-    permission: Permission;
-    ownerSignature: Hex;
-  };
-}
+export type ValidateUserOpParams = ValidateUserOpGuardParams;
 
 export interface SetPolicyRootWithPermissionParams {
   /** The account whose policy root is being updated */
@@ -74,51 +46,25 @@ export interface SetPolicyAdminParams {
 }
 
 export function createClankerGate4337Client(config: ClankerGate4337ClientConfig) {
-  const { address, publicClient, walletClient, chain } = config;
+  const base = createGateClientBase(config, ClankerGate4337ABI as Abi);
 
   return {
-    address,
+    address: base.address,
 
-    async getPolicyRoot(account: Address): Promise<Hash> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGate4337ABI,
-        functionName: 'policyRoots',
-        args: [account],
-      }) as Promise<Hash>;
+    getPolicyRoot(account: Address): Promise<Hash> {
+      return base.read<Hash>('policyRoots', [account]);
     },
 
-    async getNonce(account: Address): Promise<bigint> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGate4337ABI,
-        functionName: 'nonces',
-        args: [account],
-      }) as Promise<bigint>;
+    getNonce(account: Address): Promise<bigint> {
+      return base.read<bigint>('nonces', [account]);
     },
 
-    async getPolicyAdmin(account: Address): Promise<Address> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGate4337ABI,
-        functionName: 'policyAdmin',
-        args: [account],
-      }) as Promise<Address>;
+    getPolicyAdmin(account: Address): Promise<Address> {
+      return base.read<Address>('policyAdmin', [account]);
     },
 
     setPolicyRoot(params: SetPolicyRootParams) {
-      if (!walletClient) {
-        throw new Error('Wallet client required for write operations');
-      }
-
-      return walletClient.writeContract({
-        address,
-        abi: ClankerGate4337ABI,
-        functionName: 'setPolicyRoot',
-        args: [params.account, params.root],
-        account: params.account,
-        chain,
-      });
+      return base.setPolicyRoot(params.account, params.root, params.account);
     },
 
     /**
@@ -126,18 +72,11 @@ export function createClankerGate4337Client(config: ClankerGate4337ClientConfig)
      * now looked up on-chain inside the contract).
      */
     setPolicyRootWithPermission(params: SetPolicyRootWithPermissionParams) {
-      if (!walletClient) {
-        throw new Error('Wallet client required for write operations');
-      }
-
-      return walletClient.writeContract({
-        address,
-        abi: ClankerGate4337ABI,
-        functionName: 'setPolicyRootWithPermission',
-        args: [params.account, encodePermissionStruct(params.permission)],
-        account: params.account,
-        chain,
-      });
+      return base.write(
+        'setPolicyRootWithPermission',
+        [params.account, toOnChainStruct(params.permission)],
+        params.account
+      );
     },
 
     /**
@@ -145,18 +84,7 @@ export function createClankerGate4337Client(config: ClankerGate4337ClientConfig)
      * Only the account itself (or current admin) can call this.
      */
     setPolicyAdmin(params: SetPolicyAdminParams) {
-      if (!walletClient) {
-        throw new Error('Wallet client required for write operations');
-      }
-
-      return walletClient.writeContract({
-        address,
-        abi: ClankerGate4337ABI,
-        functionName: 'setPolicyAdmin',
-        args: [params.targetAccount, params.admin],
-        account: params.account,
-        chain,
-      });
+      return base.write('setPolicyAdmin', [params.targetAccount, params.admin], params.account);
     },
 
     /**
@@ -167,122 +95,13 @@ export function createClankerGate4337Client(config: ClankerGate4337ClientConfig)
      *
      * @returns validationData uint256 (0 = success, 1 = failure, or packed sigFail|validUntil|validAfter)
      */
-    async validateUserOp(params: ValidateUserOpParams): Promise<bigint> {
-      const { userOp, userOpHash, guardData } = params;
-
-      // Pack the guard data into userOp.signature
-      const packedSignature = packUserOpSignature({
-        proof: guardData.proof,
-        permission: guardData.permission,
-        ownerSignature: guardData.ownerSignature,
-      });
-
-      const packedOp: PackedUserOperation = { ...userOp, signature: packedSignature };
-
-      return publicClient.readContract({
-        address,
-        abi: ClankerGate4337ABI,
-        functionName: 'validateUserOp',
-        args: [
-          [
-            packedOp.sender,
-            packedOp.nonce,
-            packedOp.initCode,
-            packedOp.callData,
-            packedOp.accountGasLimits,
-            packedOp.preVerificationGas,
-            packedOp.gasFees,
-            packedOp.paymasterAndData,
-            packedOp.signature,
-          ],
-          userOpHash,
-        ],
-      }) as Promise<bigint>;
+    validateUserOp(params: ValidateUserOpParams): Promise<bigint> {
+      return base.validateUserOp(params);
     },
 
-    /**
-     * Compute the account-scoped permission hash (canonical leaf used in the Merkle tree).
-     */
-    async computePermissionHash(account: Address, permission: Permission, nonce: bigint): Promise<Hash> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGate4337ABI,
-        functionName: 'computePermissionHash',
-        args: [account, encodePermissionStruct(permission), nonce],
-      }) as Promise<Hash>;
-    },
-
-    /**
-     * Compute the inner (field-based) permission hash without an account scope.
-     * Renamed from `computePermissionHash` (field-based overload) on this branch.
-     */
-    async computePermissionInnerHash(permission: Permission): Promise<Hash> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGate4337ABI,
-        functionName: 'computePermissionInnerHash',
-        args: [
-          permission.target,
-          permission.selector,
-          permission.rules.map((r) => ({
-            offset: BigInt(r.offset),
-            op: r.op,
-            value: r.value,
-            values: r.values ?? [],
-          })),
-          permission.validAfter ?? 0,
-          permission.validUntil ?? 0,
-          BigInt(permission.chainId ?? 0),
-          permission.singleUse ?? false,
-          permission.maxValue ?? 0n,
-        ],
-      }) as Promise<Hash>;
-    },
-
-    encodeSetPolicyRoot(account: Address, root: Hash): Hex {
-      return encodeFunctionData({
-        abi: ClankerGate4337ABI,
-        functionName: 'setPolicyRoot',
-        args: [account, root],
-      });
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a Permission SDK object to the named-field struct shape expected by
- * writeContract / encodeFunctionData (viem resolves name→position automatically).
- */
-function encodePermissionStruct(permission: Permission): {
-  target: Address;
-  selector: Hex;
-  validAfter: number;
-  validUntil: number;
-  singleUse: boolean;
-  chainId: bigint;
-  maxValue: bigint;
-  authorizedCaller: Address;
-  rules: readonly { offset: bigint; op: number; value: Hash; values: readonly Hash[] }[];
-} {
-  return {
-    target: permission.target,
-    selector: permission.selector,
-    validAfter: permission.validAfter ?? 0,
-    validUntil: permission.validUntil ?? 0,
-    singleUse: permission.singleUse ?? false,
-    chainId: BigInt(permission.chainId ?? 0),
-    maxValue: permission.maxValue ?? 0n,
-    authorizedCaller: permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
-    rules: permission.rules.map((r) => ({
-      offset: BigInt(r.offset),
-      op: r.op,
-      value: r.value,
-      values: r.values ?? [],
-    })),
+    computePermissionHash: base.computePermissionHash,
+    computePermissionInnerHash: base.computePermissionInnerHash,
+    encodeSetPolicyRoot: base.encodeSetPolicyRoot,
   };
 }
 
