@@ -32,6 +32,13 @@ export {
 } from './ClankerGate7579Client.js';
 
 export {
+  createGateClientBase,
+  type GateClientBase,
+  type GateClientConfig,
+  type ValidateUserOpGuardParams,
+} from './base.js';
+
+export {
   toOnChainStruct,
   toRuleTuples,
   toInnerHashArgs,

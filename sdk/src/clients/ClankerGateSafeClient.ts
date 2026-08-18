@@ -6,20 +6,17 @@ import {
   type WalletClient,
   type PublicClient,
   type Chain,
+  type Abi,
   encodeFunctionData,
 } from 'viem';
 import { ClankerGateSafeABI } from '../contracts/index.js';
 import type { Permission } from '../types/index.js';
-import { toInnerHashArgs, toOnChainStruct } from './permission-codec.js';
+import { toOnChainStruct } from './permission-codec.js';
+import { createGateClientBase, type GateClientConfig } from './base.js';
 
 export type { Address, Hash, Hex, Account, WalletClient, PublicClient, Chain };
 
-export interface ClankerGateSafeClientConfig {
-  address: Address;
-  publicClient: PublicClient;
-  walletClient?: WalletClient;
-  chain?: Chain | null;
-}
+export type ClankerGateSafeClientConfig = GateClientConfig;
 
 export interface SetPolicyRootParams {
   safe: Address;
@@ -62,107 +59,58 @@ export interface ExecutionSucceededEvent {
   selector: Hex;
 }
 
+function execTransactionArgs(params: Omit<ExecTransactionParams, 'account'>) {
+  return [
+    params.safe,
+    params.to,
+    params.value,
+    params.data,
+    params.operation,
+    params.proof,
+    toOnChainStruct(params.permission),
+  ] as const;
+}
+
 export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig) {
-  const { address, publicClient, walletClient, chain } = config;
+  const base = createGateClientBase(config, ClankerGateSafeABI as Abi);
 
   return {
-    address,
+    address: base.address,
 
-    async getAuthorization(safe: Address): Promise<{ policyRoot: Hash; nonce: bigint; whitelistVersion: bigint; enabled: boolean }> {
-      const result = await publicClient.readContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'authorizations',
-        args: [safe],
-      });
-      return result as { policyRoot: Hash; nonce: bigint; whitelistVersion: bigint; enabled: boolean };
+    getAuthorization(safe: Address): Promise<{ policyRoot: Hash; nonce: bigint; whitelistVersion: bigint; enabled: boolean }> {
+      return base.read('authorizations', [safe]);
     },
 
-    async getNonce(safe: Address): Promise<bigint> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'nonces',
-        args: [safe],
-      }) as Promise<bigint>;
+    getNonce(safe: Address): Promise<bigint> {
+      return base.read<bigint>('nonces', [safe]);
     },
 
-    async delegatecallWhitelistVersion(safe: Address, target: Address): Promise<bigint> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'delegatecallWhitelistVersion',
-        args: [safe, target],
-      }) as Promise<bigint>;
+    delegatecallWhitelistVersion(safe: Address, target: Address): Promise<bigint> {
+      return base.read<bigint>('delegatecallWhitelistVersion', [safe, target]);
     },
 
-    async isAuthorizedCaller(safe: Address, caller: Address): Promise<boolean> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'isAuthorizedCaller',
-        args: [safe, caller],
-      }) as Promise<boolean>;
+    isAuthorizedCaller(safe: Address, caller: Address): Promise<boolean> {
+      return base.read<boolean>('isAuthorizedCaller', [safe, caller]);
     },
 
     setPolicyRoot(params: SetPolicyRootParams) {
-      if (!walletClient) {
-        throw new Error('Wallet client required for write operations');
-      }
-
-      return walletClient.writeContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'setPolicyRoot',
-        args: [params.safe, params.root],
-        account: params.account,
-        chain,
-      });
+      return base.setPolicyRoot(params.safe, params.root, params.account);
     },
 
     authorizeCaller(params: AuthorizeCallerParams) {
-      if (!walletClient) {
-        throw new Error('Wallet client required for write operations');
-      }
-
-      return walletClient.writeContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'authorizeCaller',
-        args: [params.safe, params.caller],
-        account: params.account,
-        chain,
-      });
+      return base.write('authorizeCaller', [params.safe, params.caller], params.account);
     },
 
     deauthorizeCaller(params: AuthorizeCallerParams) {
-      if (!walletClient) {
-        throw new Error('Wallet client required for write operations');
-      }
-
-      return walletClient.writeContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'deauthorizeCaller',
-        args: [params.safe, params.caller],
-        account: params.account,
-        chain,
-      });
+      return base.write('deauthorizeCaller', [params.safe, params.caller], params.account);
     },
 
     setDelegatecallWhitelist(params: { safe: Address; target: Address; allowed: boolean; account: Address | Account }) {
-      if (!walletClient) {
-        throw new Error('Wallet client required for write operations');
-      }
-
-      return walletClient.writeContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'setDelegatecallWhitelist',
-        args: [params.safe, params.target, params.allowed],
-        account: params.account,
-        chain,
-      });
+      return base.write(
+        'setDelegatecallWhitelist',
+        [params.safe, params.target, params.allowed],
+        params.account
+      );
     },
 
     /**
@@ -172,26 +120,7 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
      * itself (the `value` arg is a uint256 passed as a parameter to the Safe).
      */
     execTransaction(params: ExecTransactionParams) {
-      if (!walletClient) {
-        throw new Error('Wallet client required for write operations');
-      }
-
-      return walletClient.writeContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'execTransaction',
-        args: [
-          params.safe,
-          params.to,
-          params.value,
-          params.data,
-          params.operation,
-          params.proof,
-          toOnChainStruct(params.permission),
-        ],
-        account: params.account,
-        chain,
-      });
+      return base.write('execTransaction', execTransactionArgs(params), params.account);
     },
 
     /**
@@ -199,62 +128,7 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
      * Non-payable — no ETH forwarded to the module call.
      */
     execTransactionWithProof(params: ExecTransactionParams) {
-      if (!walletClient) {
-        throw new Error('Wallet client required for write operations');
-      }
-
-      return walletClient.writeContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'execTransactionWithProof',
-        args: [
-          params.safe,
-          params.to,
-          params.value,
-          params.data,
-          params.operation,
-          params.proof,
-          toOnChainStruct(params.permission),
-        ],
-        account: params.account,
-        chain,
-      });
-    },
-
-    /**
-     * Compute the account-scoped permission hash (canonical Merkle leaf).
-     *
-     * Uses the `computePermissionHash(address account, Permission permission, uint256 nonce)`
-     * overload. The old field-based overload has been renamed to `computePermissionInnerHash`.
-     */
-    async computePermissionHash(safe: Address, permission: Permission, nonce: bigint): Promise<Hash> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'computePermissionHash',
-        args: [safe, toOnChainStruct(permission), nonce],
-      }) as Promise<Hash>;
-    },
-
-    /**
-     * Compute the inner (field-based) permission hash without a Safe scope.
-     * Renamed from the old field-based `computePermissionHash` overload.
-     */
-    async computePermissionInnerHash(permission: Permission): Promise<Hash> {
-      return publicClient.readContract({
-        address,
-        abi: ClankerGateSafeABI,
-        functionName: 'computePermissionInnerHash',
-        args: toInnerHashArgs(permission),
-      }) as Promise<Hash>;
-    },
-
-    encodeSetPolicyRoot(safe: Address, root: Hash): Hex {
-      return encodeFunctionData({
-        abi: ClankerGateSafeABI,
-        functionName: 'setPolicyRoot',
-        args: [safe, root],
-      });
+      return base.write('execTransactionWithProof', execTransactionArgs(params), params.account);
     },
 
     encodeAuthorizeCaller(safe: Address, caller: Address): Hex {
@@ -269,17 +143,13 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
       return encodeFunctionData({
         abi: ClankerGateSafeABI,
         functionName: 'execTransaction',
-        args: [
-          params.safe,
-          params.to,
-          params.value,
-          params.data,
-          params.operation,
-          params.proof,
-          toOnChainStruct(params.permission),
-        ],
+        args: execTransactionArgs(params),
       });
     },
+
+    computePermissionHash: base.computePermissionHash,
+    computePermissionInnerHash: base.computePermissionInnerHash,
+    encodeSetPolicyRoot: base.encodeSetPolicyRoot,
   };
 }
 
