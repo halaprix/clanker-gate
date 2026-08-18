@@ -19,7 +19,7 @@ describe('integration', () => {
       const perm = ClankerGate.policy(UNISWAP_V3_ROUTER_ABI)
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
-        .fn('exactInput')
+        .fn('exactInputSingle')
         .where('params.amountIn')
         .lte(BigInt('1000000000000000000'))
         .build();
@@ -33,7 +33,7 @@ describe('integration', () => {
       const perm = ClankerGate.policy(UNISWAP_V3_ROUTER_ABI)
         .allow()
         .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45')
-        .fn('exactInput')
+        .fn('exactInputSingle')
         .where('params.amountIn')
         .lte(BigInt('1000000000000000000'))
         .build();
@@ -53,7 +53,7 @@ describe('integration', () => {
       const perm = permission(
         UNISWAP_V3_ROUTER_ABI,
         '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        'exactInput',
+        'exactInputSingle',
         [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }]
       );
 
@@ -78,31 +78,27 @@ describe('integration', () => {
             name: 'params',
             type: 'tuple',
             components: [
-              { name: 'tokenIn', type: 'address' },
-              { name: 'tokenOut', type: 'address' },
-              { name: 'fee', type: 'uint24' },
+              { name: 'path', type: 'bytes' },
               { name: 'recipient', type: 'address' },
               { name: 'deadline', type: 'uint256' },
               { name: 'amountIn', type: 'uint256' },
               { name: 'amountOutMinimum', type: 'uint256' },
-              { name: 'sqrtPriceLimitX96', type: 'uint160' },
             ],
           }],
           outputs: [{ name: 'amountOut', type: 'uint256' }],
         }],
         functionName: 'exactInput',
         args: [{
-          tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-          tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-          fee: 3000,
+          path: '0x',
           recipient: '0x1234567890123456789012345678901234567890',
           deadline: BigInt(1234567890),
           amountIn: BigInt('1000000000000000000'),
           amountOutMinimum: BigInt(0),
-          sqrtPriceLimitX96: BigInt(0),
         }],
       });
 
+      // Canonical ISwapRouter.exactInput selector
+      expect(perm.selector).toBe('0xc04b8d59');
       expect(calldata.slice(0, 10)).toBe(perm.selector);
     });
 
@@ -194,7 +190,7 @@ describe('integration', () => {
         UNISWAP_V3_ROUTER_ABI,
         '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         'exactInput',
-        [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }]
+        []
       );
 
       const perm2 = permission(
@@ -208,14 +204,14 @@ describe('integration', () => {
         UNISWAP_V3_ROUTER_ABI,
         '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         'exactOutput',
-        [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('3000000000000000000') }]
+        []
       );
 
       const perm4 = permission(
         UNISWAP_V3_ROUTER_ABI,
         '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
         'exactOutputSingle',
-        [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('4000000000000000000') }]
+        [{ paramPath: 'params.amountOut', op: OP.LTE, value: BigInt('4000000000000000000') }]
       );
 
       builder.addPermission(perm1);

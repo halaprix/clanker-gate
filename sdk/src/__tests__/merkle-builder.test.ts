@@ -24,7 +24,7 @@ describe('merkle-builder', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
@@ -41,7 +41,7 @@ describe('merkle-builder', () => {
       const permission1 = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
@@ -50,9 +50,9 @@ describe('merkle-builder', () => {
       const permission2 = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInputSingle',
+        functionName: 'exactOutputSingle',
         rules: [
-          { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
+          { paramPath: 'params.amountOut', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
       });
 
@@ -66,7 +66,7 @@ describe('merkle-builder', () => {
       const permission1 = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
@@ -75,7 +75,7 @@ describe('merkle-builder', () => {
       const permission2 = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('2000000000000000000') },
         ],
@@ -91,7 +91,7 @@ describe('merkle-builder', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [],
       });
 
@@ -105,7 +105,7 @@ describe('merkle-builder', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [],
       });
 
@@ -121,7 +121,7 @@ describe('merkle-builder', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
@@ -141,7 +141,7 @@ describe('merkle-builder', () => {
       const permission1 = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
@@ -174,7 +174,7 @@ describe('merkle-builder', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
@@ -195,7 +195,7 @@ describe('merkle-builder', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
@@ -212,7 +212,7 @@ describe('merkle-builder', () => {
       const permission1 = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
@@ -239,7 +239,7 @@ describe('merkle-builder', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
@@ -256,7 +256,7 @@ describe('merkle-builder', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [{ paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }],
       });
 
