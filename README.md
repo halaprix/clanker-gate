@@ -26,7 +26,7 @@ ClankerGate is a validation module that enables defining granular transaction po
 │  OFF-CHAIN                                                      │
 │                                                                 │
 │  1. Developer defines policy via TypeScript SDK:                │
-│     policy.allow().to(ROUTER).fn("exactInput")                 │
+│     policy.allow().to(ROUTER).fn("exactInputSingle")                 │
 │            .where("params.amountIn").lte(1 ETH)                 │
 │                                                                 │
 │  2. Policy Compiler: ABI → selectors → offsets → Permission     │
@@ -139,7 +139,7 @@ import { ClankerGate, UNISWAP_V3_ROUTER_ABI, OP } from '@clanker/gate-client';
 const permission = ClankerGate.policy(UNISWAP_V3_ROUTER_ABI)
   .allow()
   .to('0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45') // Uniswap V3 Router
-  .fn('exactInput')
+  .fn('exactInputSingle')
   .where('params.amountIn')
   .lte(BigInt('1000000000000000000')) // Max 1 ETH
   .build();
@@ -150,9 +150,9 @@ import { permission } from '@clanker/gate-client';
 const perm = permission(
   UNISWAP_V3_ROUTER_ABI,
   '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
-  'exactInput',
+  'exactInputSingle',
   [
-    { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1e18') }
+    { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') }
   ]
 );
 ```
