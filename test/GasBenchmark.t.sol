@@ -210,8 +210,8 @@ contract GasBenchmark is Test {
     function test_Gas_Comparison_ABIDecode() public view {
         bytes memory callData = abi.encodePacked(
             bytes4(0x12345678),
-            new bytes(156),
-            bytes32(uint256(500)) // amount at offset 160
+            new bytes(160),
+            bytes32(uint256(500)) // amount at absolute offset 164, where the validator reads
         );
 
         uint256 gasBefore = gasleft();
@@ -260,40 +260,6 @@ contract GasBenchmark is Test {
         uint256 gasUsed = gasBefore - gasleft();
 
         console.log("ClankerGate approach:", gasUsed);
-    }
-
-    // ============ CALCDATA EXTRACTION COMPARISON ============
-
-    function test_Gas_CalldataExtraction_ClankerGate() public view {
-        bytes memory callData = new bytes(164);
-        
-        uint256 gasBefore = gasleft();
-        
-        // Direct calldataload approach (ClankerGate)
-        bytes32 value;
-        assembly {
-            value := mload(add(add(callData, 32), 164))
-        }
-        
-        uint256 gasUsed = gasBefore - gasleft();
-        
-        console.log("Calldata extraction (ClankerGate):", gasUsed);
-        assertTrue(value != bytes32(0) || value == bytes32(0)); // silence warning
-    }
-
-    function test_Gas_CalldataExtraction_ABIDecode() public view {
-        bytes memory callData = new bytes(164);
-        
-        uint256 gasBefore = gasleft();
-        
-        // ABI decode approach
-        bytes memory params = abi.decode(callData, (bytes));
-        bytes32 value = bytes32(params);
-        
-        uint256 gasUsed = gasBefore - gasleft();
-        
-        console.log("Calldata extraction (ABI decode):", gasUsed);
-        assertTrue(value != bytes32(0) || value == bytes32(0)); // silence warning
     }
 
     // ============ HELPER ============

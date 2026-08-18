@@ -350,58 +350,13 @@ contract FuzzTests is Test {
 }
 
 // ============================================================
-// CG-15: _packValidationData bit shift fix validation
-// ERC-4337: validUntil=bits160-207, validAfter=bits208-255
+// CG-15: _packValidationData bit positions — real coverage lives in
+// test/invariant/ClankerGateInvariant.t.sol (test_ExpiredPermissionsRejected /
+// test_FuturePermissionsRejected assert the packed validUntil/validAfter bits
+// returned by the deployed gate). The former CG15_BitShiftTest computed and
+// decoded the packing entirely inside the test without calling any source
+// code, so it could never fail — removed.
 // ============================================================
-contract CG15_BitShiftTest is Test {
-    function test_CG15_PackValidationData_CorrectBitPositions() external pure {
-        uint48 validUntil = 0;
-        uint48 validAfter = 1;
-        bool sigFailed = false;
-        
-        // Packed: (validUntil << 160) | (validAfter << 208) | sigFailed
-        uint256 packed = (uint256(validUntil) << 160) | (uint256(validAfter) << 208) | (sigFailed ? 1 : 0);
-        
-        // Decode like EntryPoint does:
-        // sigFailed = packed & 1
-        // validUntil = uint48(packed >> 160)
-        // validAfter = uint48(packed >> 208)
-        uint256 decodedSigFailed = packed & 1;
-        uint48 decodedValidUntil = uint48(packed >> 160);
-        uint48 decodedValidAfter = uint48(packed >> 208);
-        
-        assertEq(decodedSigFailed, 0, "sigFailed should be 0");
-        assertEq(decodedValidUntil, validUntil, "validUntil mismatch");
-        assertEq(decodedValidAfter, validAfter, "validAfter mismatch");
-    }
-    
-    function test_CG15_PackValidationData_NoOverlap() external pure {
-        // Test that validUntil and validAfter don't overlap
-        uint48 validUntil = 4095;
-        uint48 validAfter = 12345;
-        bool sigFailed = false;
-        
-        uint256 packed = (uint256(validUntil) << 160) | (uint256(validAfter) << 208) | (sigFailed ? 1 : 0);
-        
-        uint48 decodedValidUntil = uint48(packed >> 160);
-        uint48 decodedValidAfter = uint48(packed >> 208);
-        
-        assertEq(decodedValidUntil, validUntil, "validUntil corrupted");
-        assertEq(decodedValidAfter, validAfter, "validAfter misaligned due to wrong shift (<< 192 should be << 208)");
-    }
-    
-    function test_CG15_PackValidationData_FullRange() external pure {
-        uint48 validUntil = type(uint48).max;
-        uint48 validAfter = type(uint48).max;
-        bool sigFailed = true;
-
-        uint256 packed = (uint256(validUntil) << 160) | (uint256(validAfter) << 208) | (sigFailed ? 1 : 0);
-
-        assertEq(uint48(packed >> 160), validUntil, "validUntil max");
-        assertEq(uint48(packed >> 208), validAfter, "validAfter max");
-        assertEq(packed & 1, 1, "sigFailed");
-    }
-}
 
 // ============================================================
 // CANONICAL LEAF FORMULA INVARIANT GUARD
