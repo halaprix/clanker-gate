@@ -18,7 +18,7 @@ const TEST_CONFIG: MerkleTreeConfig = {
 };
 
 const exactInputABI = [{
-  name: 'exactInput',
+  name: 'exactInputSingle',
   type: 'function',
   inputs: [{
     name: 'params',
@@ -40,7 +40,7 @@ const exactInputABI = [{
 function createTestCalldata(amountIn: bigint): `0x${string}` {
   return encodeFunctionData({
     abi: exactInputABI,
-    functionName: 'exactInput',
+    functionName: 'exactInputSingle',
     args: [{
       tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
       tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -66,7 +66,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [],
       });
 
@@ -83,7 +83,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.EQ, value: amountIn },
         ],
@@ -104,7 +104,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: maxAmount },
         ],
@@ -136,7 +136,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [],
       });
 
@@ -151,7 +151,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.EQ, value: BigInt('1000000000000000000') },
         ],
@@ -170,7 +170,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
@@ -188,7 +188,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.GT, value: BigInt('500000000000000000') },
         ],
@@ -205,7 +205,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.GT, value: BigInt('1000000000000000000') },
         ],
@@ -223,7 +223,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.GTE, value: BigInt('1000000000000000000') },
         ],
@@ -240,7 +240,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LT, value: BigInt('2000000000000000000') },
         ],
@@ -256,7 +256,7 @@ describe('Simulator', () => {
       const sim = createSimulator();
       const permission: Permission = {
         target: UNISWAP_V3_ROUTER,
-        selector: '0xe4d27b18',
+        selector: '0x414bf389',
         rules: [
           { offset: 10000, op: OP.EQ, value: toHex32(BigInt(0)) },
         ],
@@ -274,7 +274,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.GTE, value: BigInt('100000000000000000') },
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('10000000000000000000') },
@@ -295,7 +295,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('100000000000000000') },
           { paramPath: 'params.fee', op: OP.EQ, value: BigInt(3000) },
@@ -318,7 +318,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('1000000000000000000') },
         ],
@@ -338,14 +338,14 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [],
       });
 
       const otherPermission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInputSingle',
+        functionName: 'exactOutputSingle',
         rules: [],
       });
 
@@ -371,7 +371,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('2000000000000000000') },
         ],
@@ -394,7 +394,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [],
       });
 
@@ -420,14 +420,14 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [],
       });
 
       const otherPermission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInputSingle',
+        functionName: 'exactOutputSingle',
         rules: [],
       });
 
@@ -455,7 +455,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [
           { paramPath: 'params.amountIn', op: OP.LTE, value: BigInt('100000000000000000') },
         ],
@@ -478,7 +478,7 @@ describe('Simulator', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [],
       });
 

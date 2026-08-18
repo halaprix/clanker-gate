@@ -85,15 +85,16 @@ export function createABIRegistry(): ABIRegistry {
 }
 
 /**
- * Parameter definitions for Uniswap V3 swap functions.
- * 
- * Common structure used by:
- * - exactInput
- * - exactInputSingle
- * - exactOutput
- * - exactOutputSingle
+ * Parameter structs for the canonical Uniswap V3 SwapRouter (ISwapRouter,
+ * 0xE592427A0AEce92De3Edee1F18E0157C05861564).
+ *
+ * The single-hop variants take a fully static tuple, so every field can be
+ * constrained with fixed-offset rules. The multi-hop variants (exactInput /
+ * exactOutput) take a dynamic `bytes path`, which makes the whole tuple
+ * dynamically located in calldata — the policy compiler rejects rules on
+ * their fields rather than emit offsets that would compare ABI pointers.
  */
-const UNISWAP_V3_PARAMS = [
+const UNISWAP_V3_EXACT_INPUT_SINGLE_PARAMS = [
   { name: 'tokenIn', type: 'address' },
   { name: 'tokenOut', type: 'address' },
   { name: 'fee', type: 'uint24' },
@@ -102,6 +103,33 @@ const UNISWAP_V3_PARAMS = [
   { name: 'amountIn', type: 'uint256' },
   { name: 'amountOutMinimum', type: 'uint256' },
   { name: 'sqrtPriceLimitX96', type: 'uint160' },
+] as const satisfies readonly ABIParam[];
+
+const UNISWAP_V3_EXACT_OUTPUT_SINGLE_PARAMS = [
+  { name: 'tokenIn', type: 'address' },
+  { name: 'tokenOut', type: 'address' },
+  { name: 'fee', type: 'uint24' },
+  { name: 'recipient', type: 'address' },
+  { name: 'deadline', type: 'uint256' },
+  { name: 'amountOut', type: 'uint256' },
+  { name: 'amountInMaximum', type: 'uint256' },
+  { name: 'sqrtPriceLimitX96', type: 'uint160' },
+] as const satisfies readonly ABIParam[];
+
+const UNISWAP_V3_EXACT_INPUT_PARAMS = [
+  { name: 'path', type: 'bytes' },
+  { name: 'recipient', type: 'address' },
+  { name: 'deadline', type: 'uint256' },
+  { name: 'amountIn', type: 'uint256' },
+  { name: 'amountOutMinimum', type: 'uint256' },
+] as const satisfies readonly ABIParam[];
+
+const UNISWAP_V3_EXACT_OUTPUT_PARAMS = [
+  { name: 'path', type: 'bytes' },
+  { name: 'recipient', type: 'address' },
+  { name: 'deadline', type: 'uint256' },
+  { name: 'amountOut', type: 'uint256' },
+  { name: 'amountInMaximum', type: 'uint256' },
 ] as const satisfies readonly ABIParam[];
 
 /** Output parameters for exact input functions */
@@ -127,8 +155,8 @@ const UNISWAP_V3_OUTPUT_PARAMS_REVERSE = [
  * ```typescript
  * const permission = compilePolicy({
  *   abi: UNISWAP_V3_ROUTER_ABI,
- *   target: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
- *   functionName: 'exactInput',
+ *   target: '0xE592427A0AEce92De3Edee1F18E0157C05861564',
+ *   functionName: 'exactInputSingle',
  *   rules: [...]
  * });
  * ```
@@ -137,25 +165,25 @@ export const UNISWAP_V3_ROUTER_ABI = [
   {
     name: 'exactInput',
     type: 'function',
-    inputs: [{ name: 'params', type: 'tuple', components: UNISWAP_V3_PARAMS }],
+    inputs: [{ name: 'params', type: 'tuple', components: UNISWAP_V3_EXACT_INPUT_PARAMS }],
     outputs: UNISWAP_V3_OUTPUT_PARAMS,
   },
   {
     name: 'exactInputSingle',
     type: 'function',
-    inputs: [{ name: 'params', type: 'tuple', components: UNISWAP_V3_PARAMS }],
+    inputs: [{ name: 'params', type: 'tuple', components: UNISWAP_V3_EXACT_INPUT_SINGLE_PARAMS }],
     outputs: UNISWAP_V3_OUTPUT_PARAMS,
   },
   {
     name: 'exactOutput',
     type: 'function',
-    inputs: [{ name: 'params', type: 'tuple', components: UNISWAP_V3_PARAMS }],
+    inputs: [{ name: 'params', type: 'tuple', components: UNISWAP_V3_EXACT_OUTPUT_PARAMS }],
     outputs: UNISWAP_V3_OUTPUT_PARAMS_REVERSE,
   },
   {
     name: 'exactOutputSingle',
     type: 'function',
-    inputs: [{ name: 'params', type: 'tuple', components: UNISWAP_V3_PARAMS }],
+    inputs: [{ name: 'params', type: 'tuple', components: UNISWAP_V3_EXACT_OUTPUT_SINGLE_PARAMS }],
     outputs: UNISWAP_V3_OUTPUT_PARAMS_REVERSE,
   },
 ] as const satisfies readonly ABIEntry[];

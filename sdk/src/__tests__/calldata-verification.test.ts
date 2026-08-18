@@ -42,7 +42,7 @@ describe('Calldata Offset Verification', () => {
    */
 
   const exactInputABI = [{
-    name: 'exactInput',
+    name: 'exactInputSingle',
     type: 'function',
     inputs: [{
       name: 'params',
@@ -78,7 +78,7 @@ describe('Calldata Offset Verification', () => {
     it('should compute correct selector for exactInput', () => {
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -91,7 +91,7 @@ describe('Calldata Offset Verification', () => {
         }],
       });
 
-      const computedSelector = computeSelector('exactInput', exactInputABI[0].inputs!);
+      const computedSelector = computeSelector('exactInputSingle', exactInputABI[0].inputs!);
       const actualSelector = readSelector(calldata);
 
       expect(actualSelector).toBe(computedSelector);
@@ -104,7 +104,7 @@ describe('Calldata Offset Verification', () => {
       
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn,
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -128,7 +128,7 @@ describe('Calldata Offset Verification', () => {
       
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut,
@@ -152,7 +152,7 @@ describe('Calldata Offset Verification', () => {
       
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -174,7 +174,7 @@ describe('Calldata Offset Verification', () => {
       
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -198,7 +198,7 @@ describe('Calldata Offset Verification', () => {
       
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -220,7 +220,7 @@ describe('Calldata Offset Verification', () => {
       
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -244,7 +244,7 @@ describe('Calldata Offset Verification', () => {
       
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -266,7 +266,7 @@ describe('Calldata Offset Verification', () => {
       
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -288,7 +288,7 @@ describe('Calldata Offset Verification', () => {
     it('should create policy with matching selector', () => {
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -304,7 +304,7 @@ describe('Calldata Offset Verification', () => {
       const permission = compilePolicy({
         abi: UNISWAP_V3_ROUTER_ABI,
         target: UNISWAP_V3_ROUTER,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         rules: [],
       });
 
@@ -317,7 +317,7 @@ describe('Calldata Offset Verification', () => {
     it('should handle zero values correctly', () => {
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -340,7 +340,7 @@ describe('Calldata Offset Verification', () => {
       
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [{
           tokenIn: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
           tokenOut: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
@@ -371,7 +371,7 @@ describe('Calldata Offset Verification', () => {
 
       const calldata = encodeFunctionData({
         abi: exactInputABI,
-        functionName: 'exactInput',
+        functionName: 'exactInputSingle',
         args: [testData],
       });
 
