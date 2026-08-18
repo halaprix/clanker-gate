@@ -13,7 +13,8 @@ import {
 import { ClankerGate7579ABI } from '../contracts/index.js';
 import type { Permission } from '../types/index.js';
 import { packUserOpSignature } from './guardData.js';
-import type { PackedUserOperation, ValidateUserOpParams as ValidateUserOpParams4337 } from './ClankerGate4337Client.js';
+import { toInnerHashArgs, toOnChainStruct } from './permission-codec.js';
+import type { PackedUserOperation } from './ClankerGate4337Client.js';
 
 export type { Address, Hash, Hex, Account, WalletClient, PublicClient, Chain };
 export type { PackedUserOperation };
@@ -267,7 +268,7 @@ export function createClankerGate7579Client(config: ClankerGate7579ClientConfig)
         address,
         abi: ClankerGate7579ABI,
         functionName: 'computePermissionHash',
-        args: [account, encodePermissionStruct(permission), nonce],
+        args: [account, toOnChainStruct(permission), nonce],
       }) as Promise<Hash>;
     },
 
@@ -280,21 +281,7 @@ export function createClankerGate7579Client(config: ClankerGate7579ClientConfig)
         address,
         abi: ClankerGate7579ABI,
         functionName: 'computePermissionInnerHash',
-        args: [
-          permission.target,
-          permission.selector,
-          permission.rules.map((r) => ({
-            offset: BigInt(r.offset),
-            op: r.op,
-            value: r.value,
-            values: r.values ?? [],
-          })),
-          permission.validAfter ?? 0,
-          permission.validUntil ?? 0,
-          BigInt(permission.chainId ?? 0),
-          permission.singleUse ?? false,
-          permission.maxValue ?? 0n,
-        ],
+        args: toInnerHashArgs(permission),
       }) as Promise<Hash>;
     },
 
@@ -326,39 +313,6 @@ export function createClankerGate7579Client(config: ClankerGate7579ClientConfig)
         args: [targetAccount, root],
       });
     },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-function encodePermissionStruct(permission: Permission): {
-  target: Address;
-  selector: Hex;
-  validAfter: number;
-  validUntil: number;
-  singleUse: boolean;
-  chainId: bigint;
-  maxValue: bigint;
-  authorizedCaller: Address;
-  rules: readonly { offset: bigint; op: number; value: Hash; values: readonly Hash[] }[];
-} {
-  return {
-    target: permission.target,
-    selector: permission.selector,
-    validAfter: permission.validAfter ?? 0,
-    validUntil: permission.validUntil ?? 0,
-    singleUse: permission.singleUse ?? false,
-    chainId: BigInt(permission.chainId ?? 0),
-    maxValue: permission.maxValue ?? 0n,
-    authorizedCaller: permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
-    rules: permission.rules.map((r) => ({
-      offset: BigInt(r.offset),
-      op: r.op,
-      value: r.value,
-      values: r.values ?? [],
-    })),
   };
 }
 

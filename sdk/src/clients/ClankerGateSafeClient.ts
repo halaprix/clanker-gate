@@ -10,6 +10,7 @@ import {
 } from 'viem';
 import { ClankerGateSafeABI } from '../contracts/index.js';
 import type { Permission } from '../types/index.js';
+import { toInnerHashArgs, toOnChainStruct } from './permission-codec.js';
 
 export type { Address, Hash, Hex, Account, WalletClient, PublicClient, Chain };
 
@@ -186,7 +187,7 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
           params.data,
           params.operation,
           params.proof,
-          encodePermissionStruct(params.permission),
+          toOnChainStruct(params.permission),
         ],
         account: params.account,
         chain,
@@ -213,7 +214,7 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
           params.data,
           params.operation,
           params.proof,
-          encodePermissionStruct(params.permission),
+          toOnChainStruct(params.permission),
         ],
         account: params.account,
         chain,
@@ -231,7 +232,7 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
         address,
         abi: ClankerGateSafeABI,
         functionName: 'computePermissionHash',
-        args: [safe, encodePermissionStruct(permission), nonce],
+        args: [safe, toOnChainStruct(permission), nonce],
       }) as Promise<Hash>;
     },
 
@@ -244,21 +245,7 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
         address,
         abi: ClankerGateSafeABI,
         functionName: 'computePermissionInnerHash',
-        args: [
-          permission.target,
-          permission.selector,
-          permission.rules.map((r) => ({
-            offset: BigInt(r.offset),
-            op: r.op,
-            value: r.value,
-            values: r.values ?? [],
-          })),
-          permission.validAfter ?? 0,
-          permission.validUntil ?? 0,
-          BigInt(permission.chainId ?? 0),
-          permission.singleUse ?? false,
-          permission.maxValue ?? 0n,
-        ],
+        args: toInnerHashArgs(permission),
       }) as Promise<Hash>;
     },
 
@@ -289,43 +276,10 @@ export function createClankerGateSafeClient(config: ClankerGateSafeClientConfig)
           params.data,
           params.operation,
           params.proof,
-          encodePermissionStruct(params.permission),
+          toOnChainStruct(params.permission),
         ],
       });
     },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-function encodePermissionStruct(permission: Permission): {
-  target: Address;
-  selector: Hex;
-  validAfter: number;
-  validUntil: number;
-  singleUse: boolean;
-  chainId: bigint;
-  maxValue: bigint;
-  authorizedCaller: Address;
-  rules: readonly { offset: bigint; op: number; value: Hash; values: readonly Hash[] }[];
-} {
-  return {
-    target: permission.target,
-    selector: permission.selector,
-    validAfter: permission.validAfter ?? 0,
-    validUntil: permission.validUntil ?? 0,
-    singleUse: permission.singleUse ?? false,
-    chainId: BigInt(permission.chainId ?? 0),
-    maxValue: permission.maxValue ?? 0n,
-    authorizedCaller: permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
-    rules: permission.rules.map((r) => ({
-      offset: BigInt(r.offset),
-      op: r.op,
-      value: r.value,
-      values: r.values ?? [],
-    })),
   };
 }
 

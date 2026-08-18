@@ -32,6 +32,16 @@ export {
 } from './ClankerGate7579Client.js';
 
 export {
+  toOnChainStruct,
+  toRuleTuples,
+  toInnerHashArgs,
+  PERMISSION_STRUCT_ABI_STRING,
+  RULE_STRUCT_ABI_STRING,
+  type OnChainPermission,
+  type OnChainRule,
+} from './permission-codec.js';
+
+export {
   packUserOpSignature,
   encodeGuardData,
   decodePackedSignature,

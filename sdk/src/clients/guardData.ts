@@ -17,12 +17,12 @@
 import {
   type Hex,
   type Hash,
-  type Address,
   encodeAbiParameters,
   parseAbiParameters,
   decodeAbiParameters,
 } from 'viem';
 import type { Permission } from '../types/index.js';
+import { PERMISSION_STRUCT_ABI_STRING, toOnChainStruct } from './permission-codec.js';
 
 // ---------------------------------------------------------------------------
 // ABI string for the full packed signature payload
@@ -30,17 +30,10 @@ import type { Permission } from '../types/index.js';
 
 /**
  * ABI parameters string for packUserOpSignature / encodeGuardData output.
- *
- * Layout mirrors the on-chain Permission struct field order in the ABI:
- *   (target, selector, validAfter, validUntil, singleUse, chainId,
- *    maxValue, authorizedCaller, rules[])
- *
- * ParamRule: (offset uint256, op uint8, value bytes32, values bytes32[])
+ * The Permission layout is owned by permission-codec.ts.
  */
 export const PACKED_SIG_ABI_STRING =
-  'bytes32[], ' +
-  '(address target, bytes4 selector, uint48 validAfter, uint48 validUntil, bool singleUse, uint256 chainId, uint256 maxValue, address authorizedCaller, (uint256 offset, uint8 op, bytes32 value, bytes32[] values)[] rules), ' +
-  'bytes';
+  `bytes32[], ${PERMISSION_STRUCT_ABI_STRING}, bytes`;
 
 export const PACKED_SIG_ABI = parseAbiParameters(PACKED_SIG_ABI_STRING);
 
@@ -68,7 +61,7 @@ export function packUserOpSignature({
   permission,
   ownerSignature,
 }: PackUserOpSignatureParams): Hex {
-  const permTuple = encodePermissionForPack(permission);
+  const permTuple = toOnChainStruct(permission);
   return encodeAbiParameters(PACKED_SIG_ABI, [proof, permTuple, ownerSignature]);
 }
 
@@ -91,44 +84,4 @@ export function decodePackedSignature(encoded: Hex): {
     Hex,
   ];
   return { proof: decoded[0], ownerSignature: decoded[2] };
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a Permission SDK object to the on-chain ABI tuple layout.
- *
- * On-chain struct field order (from the ABI):
- *   target, selector, validAfter, validUntil, singleUse, chainId,
- *   maxValue, authorizedCaller, rules[]
- */
-function encodePermissionForPack(permission: Permission): {
-  target: Address;
-  selector: Hex;
-  validAfter: number;
-  validUntil: number;
-  singleUse: boolean;
-  chainId: bigint;
-  maxValue: bigint;
-  authorizedCaller: Address;
-  rules: readonly { offset: bigint; op: number; value: Hash; values: readonly Hash[] }[];
-} {
-  return {
-    target: permission.target,
-    selector: permission.selector,
-    validAfter: permission.validAfter ?? 0,
-    validUntil: permission.validUntil ?? 0,
-    singleUse: permission.singleUse ?? false,
-    chainId: BigInt(permission.chainId ?? 0),
-    maxValue: permission.maxValue ?? 0n,
-    authorizedCaller: permission.authorizedCaller ?? '0x0000000000000000000000000000000000000000',
-    rules: permission.rules.map((r) => ({
-      offset: BigInt(r.offset),
-      op: r.op,
-      value: r.value,
-      values: r.values ?? [],
-    })),
-  };
 }
