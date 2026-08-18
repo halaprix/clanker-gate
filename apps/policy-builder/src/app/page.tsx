@@ -5,6 +5,7 @@ import {
   ClankerGate,
   UNISWAP_V3_ROUTER_ABI,
   OP,
+  resolveOffset,
   type Permission,
   type ABIEntry,
   type OpType,
@@ -26,48 +27,11 @@ interface PolicyConfig {
   rules: Rule[];
 }
 
-const ABI_FIELDS: Record<string, { name: string; type: string }[]> = {
-  exactInput: [
-    { name: "params.tokenIn", type: "address" },
-    { name: "params.tokenOut", type: "address" },
-    { name: "params.fee", type: "uint24" },
-    { name: "params.recipient", type: "address" },
-    { name: "params.deadline", type: "uint256" },
-    { name: "params.amountIn", type: "uint256" },
-    { name: "params.amountOutMinimum", type: "uint256" },
-    { name: "params.sqrtPriceLimitX96", type: "uint160" },
-  ],
-  exactInputSingle: [
-    { name: "params.tokenIn", type: "address" },
-    { name: "params.tokenOut", type: "address" },
-    { name: "params.fee", type: "uint24" },
-    { name: "params.recipient", type: "address" },
-    { name: "params.deadline", type: "uint256" },
-    { name: "params.amountIn", type: "uint256" },
-    { name: "params.amountOutMinimum", type: "uint256" },
-    { name: "params.sqrtPriceLimitX96", type: "uint160" },
-  ],
-  exactOutput: [
-    { name: "params.tokenIn", type: "address" },
-    { name: "params.tokenOut", type: "address" },
-    { name: "params.fee", type: "uint24" },
-    { name: "params.recipient", type: "address" },
-    { name: "params.deadline", type: "uint256" },
-    { name: "params.amountOut", type: "uint256" },
-    { name: "params.amountInMaximum", type: "uint256" },
-    { name: "params.sqrtPriceLimitX96", type: "uint160" },
-  ],
-  exactOutputSingle: [
-    { name: "params.tokenIn", type: "address" },
-    { name: "params.tokenOut", type: "address" },
-    { name: "params.fee", type: "uint24" },
-    { name: "params.recipient", type: "address" },
-    { name: "params.deadline", type: "uint256" },
-    { name: "params.amountOut", type: "uint256" },
-    { name: "params.amountInMaximum", type: "uint256" },
-    { name: "params.sqrtPriceLimitX96", type: "uint160" },
-  ],
-};
+interface Field {
+  name: string;
+  type: string;
+  offset: number;
+}
 
 const EXAMPLE_POLICIES: PolicyConfig[] = [
   {
@@ -93,8 +57,30 @@ const EXAMPLE_POLICIES: PolicyConfig[] = [
   },
 ];
 
-function getFieldsForFunction(fnName: string): { name: string; type: string }[] {
-  return ABI_FIELDS[fnName] || [];
+function getFunctionEntry(fnName: string): ABIEntry | undefined {
+  return UNISWAP_V3_ROUTER_ABI.find(
+    e => e.type === "function" && e.name === fnName
+  );
+}
+
+// Fields and their calldata offsets come from the SDK's ABI registry and
+// policy compiler — the same resolution `.where("params.amountIn")` uses.
+function getFieldsForFunction(fnName: string): Field[] {
+  const entry = getFunctionEntry(fnName);
+  if (!entry?.inputs) return [];
+  return entry.inputs
+    .flatMap(input =>
+      input.type === "tuple" && input.components
+        ? input.components.map(c => ({ name: `${input.name}.${c.name}`, type: c.type }))
+        : [{ name: input.name, type: input.type }]
+    )
+    .map(f => {
+      try {
+        return { ...f, offset: resolveOffset(entry, f.name) };
+      } catch {
+        return { ...f, offset: -1 };
+      }
+    });
 }
 
 function buildPermission(policy: PolicyConfig): Permission {
@@ -121,13 +107,32 @@ function buildPermission(policy: PolicyConfig): Permission {
   return builder.build();
 }
 
-function CalldataVisualizer({ policy }: { policy: PolicyConfig }) {
+// User-typed values can be mid-edit garbage; never let that crash the page.
+function tryBuildPermission(policy: PolicyConfig): { permission: Permission | null; error: string | null } {
+  try {
+    return { permission: buildPermission(policy), error: null };
+  } catch (e) {
+    return { permission: null, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function InvalidPolicyNote({ error }: { error: string }) {
+  return (
+    <div className="text-xs text-[#ff9f61] bg-[#2a1500] border border-[#ff6b35]/[0.4] rounded-md px-3 py-2">
+      Policy doesn&apos;t compile yet: <span className="text-gray-400">{error}</span>
+    </div>
+  );
+}
+
+function CalldataVisualizer({ policy, permission, error }: { policy: PolicyConfig; permission: Permission | null; error: string | null }) {
   const fields = getFieldsForFunction(policy.functionName);
   if (fields.length === 0) {
     return <div className="text-gray-500 text-xs">Unknown function – no visualization available</div>;
   }
+  if (!permission) {
+    return <InvalidPolicyNote error={error ?? "invalid rule value"} />;
+  }
 
-  const permission = buildPermission(policy);
   const ruleOffsets = new Set(permission.rules.map(r => r.offset));
   
   const getRuleForOffset = (offset: number) => {
@@ -150,8 +155,8 @@ function CalldataVisualizer({ policy }: { policy: PolicyConfig }) {
             selector · {permission.selector.slice(0, 10)}...
           </div>
         </div>
-        {fields.map((field, i) => {
-          const offset = i * 32;
+        {fields.map(field => {
+          const offset = field.offset;
           const isHighlighted = ruleOffsets.has(offset);
           const rule = getRuleForOffset(offset);
           return (
@@ -183,16 +188,12 @@ function CalldataVisualizer({ policy }: { policy: PolicyConfig }) {
   );
 }
 
-function GeneratedCode({ policy }: { policy: PolicyConfig }) {
+function GeneratedCode({ policy, permission, error }: { policy: PolicyConfig; permission: Permission | null; error: string | null }) {
   const [copied, setCopied] = useState(false);
-  const fields = getFieldsForFunction(policy.functionName);
-  const permission = buildPermission(policy);
 
-  const rulesCode = policy.rules.map(r => {
-    const fieldIndex = fields.findIndex(f => f.name === r.fieldName);
-    const offset = fieldIndex >= 0 ? fieldIndex * 32 : "???";
-    return `    { offset: ${offset}, op: OP.${Object.keys(OP).find(k => OP[k as keyof typeof OP] === r.op)}, value: padValue("${r.rawValue}") }, // ${r.fieldName}`;
-  }).join("\n");
+  if (!permission) {
+    return <InvalidPolicyNote error={error ?? "invalid rule value"} />;
+  }
 
   const tsCode = `import { ClankerGate, UNISWAP_V3_ROUTER_ABI, OP } from '@clanker/gate-client';
 
@@ -253,14 +254,8 @@ function RuleRow({ rule, index, functionName, onUpdate, onRemove }: {
   onRemove: (idx: number) => void;
 }) {
   const fields = getFieldsForFunction(functionName);
-  const permission = buildPermission({
-    id: "temp",
-    label: "temp",
-    target: "0x0000000000000000000000000000000000000001",
-    functionName,
-    rules: [rule],
-  });
-  const offset = permission.rules[0]?.offset ?? "???";
+  const fieldOffset = fields.find(f => f.name === rule.fieldName)?.offset ?? -1;
+  const offset: number | string = fieldOffset >= 0 ? fieldOffset : "???";
 
   return (
     <div className="flex gap-2 items-center bg-[#0c0c18] rounded-md border border-[#1e1e30] px-3 py-2">
@@ -341,14 +336,16 @@ export default function ClankerGateDX() {
     }));
   }, [activePolicy.functionName]);
 
-  const permission = buildPermission(activePolicy);
-  const soliditySnippet = `// Auto-generated by @clanker/gate-client
+  const { permission, error } = tryBuildPermission(activePolicy);
+  const soliditySnippet = permission
+    ? `// Auto-generated by @clanker/gate-client
 Permission memory perm = Permission({
     target: ${permission.target},
     selector: ${permission.selector},
     rules: new ParamRule[](${permission.rules.length})
 });
-${permission.rules.map((r, i) => `perm.rules[${i}] = ParamRule({ offset: ${r.offset}, op: ${r.op}, value: ${r.value} });`).join("\n")}`;
+${permission.rules.map((r, i) => `perm.rules[${i}] = ParamRule({ offset: ${r.offset}, op: ${r.op}, value: ${r.value} });`).join("\n")}`
+    : "";
 
   return (
     <div className="min-h-screen bg-[#05050f] text-gray-300 font-mono p-0">
@@ -391,20 +388,20 @@ ${permission.rules.map((r, i) => `perm.rules[${i}] = ParamRule({ offset: ${r.off
             <div className="flex-1 min-w-[200px]">
               <div className="text-[9px] text-gray-600 mb-1 tracking-widest uppercase">Target</div>
               <div className="bg-[#0a0a18] border border-[#1a1a2e] rounded-sm px-2.5 py-1.5 text-[11px] text-[#8888cc] font-mono">
-                {permission.target}
+                {activePolicy.target}
               </div>
             </div>
             <div className="flex-[0_0_200px]">
               <div className="text-[9px] text-gray-600 mb-1 tracking-widest uppercase">Selector</div>
               <div className="bg-[#0a0a18] border border-[#1a1a2e] rounded-sm px-2.5 py-1.5 text-[11px] text-[#ff9f61] font-mono">
-                {permission.selector}
+                {permission?.selector ?? "—"}
                 <span className="text-gray-500 ml-2">· {activePolicy.functionName}()</span>
               </div>
             </div>
           </div>
 
           <div className="text-[9px] text-gray-600 mb-2 tracking-widest uppercase">
-            Param Rules ({permission.rules.length})
+            Param Rules ({activePolicy.rules.length})
           </div>
           <div className="flex flex-col gap-1.5">
             {activePolicy.rules.map((rule, i) => (
@@ -466,12 +463,15 @@ ${permission.rules.map((r, i) => `perm.rules[${i}] = ParamRule({ offset: ${r.off
 
           <div className="p-5 overflow-y-auto flex-1">
             {tab === "visualizer" && (
-              <CalldataVisualizer policy={activePolicy} />
+              <CalldataVisualizer policy={activePolicy} permission={permission} error={error} />
             )}
             {tab === "code" && (
-              <GeneratedCode policy={activePolicy} />
+              <GeneratedCode policy={activePolicy} permission={permission} error={error} />
             )}
-            {tab === "solidity" && (
+            {tab === "solidity" && !permission && (
+              <InvalidPolicyNote error={error ?? "invalid rule value"} />
+            )}
+            {tab === "solidity" && permission && (
               <div className="relative">
                 <pre className="bg-[#080812] border border-[#1a1a2e] rounded-md p-3.5 text-[11px] leading-loose text-[#6fa] overflow-x-auto m-0 font-mono">
                   {soliditySnippet}
