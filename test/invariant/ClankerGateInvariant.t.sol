@@ -28,8 +28,9 @@ contract InvariantHandler {
     uint256 public ownerKey;
     address public owner;
 
-    uint256 public ghost_nonce;
+    uint256 public ghost_rootSets;
     bytes32 public ghost_lastRoot;
+    uint256 public ghost_successfulValidations;
 
     constructor(address _gate, address _account, uint256 _ownerKey) {
         gate = ClankerGate4337(_gate);
@@ -49,25 +50,41 @@ contract InvariantHandler {
 
     function setPolicyRoot(bytes32 root) external {
         ghost_lastRoot = root;
-        ghost_nonce++;
+        ghost_rootSets++;
         vm.prank(address(account));
         gate.setPolicyRoot(address(account), root);
     }
 
-    function validateWithPermission(Permission memory permission, bytes memory callData) external returns (uint256) {
-        bytes32[] memory proof = new bytes32[](0);
+    /// @notice Installs a well-formed single-leaf policy and validates a matching
+    ///         UserOp against it. This must ALWAYS succeed — any revert or nonzero
+    ///         result fails the run (no try/catch swallowing).
+    function validateFreshPermission(uint96 amount, bool singleUse) external {
+        Permission memory permission;
+        permission.target = address(0);
+        permission.selector = 0x12345678;
+        permission.rules = new ParamRule[](1);
+        // LTE uint96.max — every fuzzed uint96 amount satisfies it
+        permission.rules[0] = ParamRule(0, 4, bytes32(uint256(type(uint96).max)), new bytes32[](0));
+        permission.singleUse = singleUse;
 
-        bytes32 userOpHash = keccak256(abi.encode(block.timestamp, ghost_nonce));
+        uint256 newNonce = gate.nonces(address(account)) + 1;
+        bytes32 leaf = gate.computePermissionHash(address(account), permission, newNonce);
+        vm.prank(address(account));
+        gate.setPolicyRoot(address(account), leaf);
+        ghost_lastRoot = leaf;
+        ghost_rootSets++;
+
+        bytes32 userOpHash = keccak256(abi.encode(ghost_rootSets, amount));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
-        bytes memory signature = abi.encodePacked(r, s, v);
+        bytes memory guardData =
+            abi.encode(new bytes32[](0), permission, abi.encodePacked(r, s, v));
 
-        bytes memory guardData = abi.encode(proof, permission, signature);
+        bytes memory callData = abi.encodePacked(bytes4(0x12345678), bytes32(uint256(amount)));
 
-        try gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash) returns (uint256 result) {
-            return result;
-        } catch {
-            return 1;
-        }
+        vm.prank(address(account));
+        uint256 result = gate.validateUserOp(_packUserOp(address(account), callData, guardData), userOpHash);
+        require(result == 0, "well-formed permission must validate");
+        ghost_successfulValidations++;
     }
 }
 
@@ -101,12 +118,31 @@ contract ClankerGateInvariantTest is Test {
         // Set initial policy root
         vm.prank(address(account));
         gate.setPolicyRoot(address(account), bytes32(uint256(1)));
+
+        // Only the handler drives state — direct fuzz calls to the gate would
+        // desync the ghost bookkeeping the invariants compare against.
+        targetContract(address(handler));
     }
 
-    // Invariant 1: Nonce always increments on setPolicyRoot
-    function invariant_NonceIncrementsOnSetPolicyRoot() public view {
-        uint256 nonce = gate.nonces(address(account));
-        assertGt(nonce, 0, "Nonce should be at least 1 after setup");
+    // Invariant 1: the on-chain nonce equals the setup root-set (1) plus exactly
+    // one increment per handler root-set — nothing else may move the epoch.
+    function invariant_NonceTracksRootSets() public view {
+        assertEq(
+            gate.nonces(address(account)),
+            1 + handler.ghost_rootSets(),
+            "nonce must equal setup + handler root sets"
+        );
+    }
+
+    // Invariant 2: the stored policy root is always the last root the handler set.
+    function invariant_StoredRootIsLastSet() public view {
+        if (handler.ghost_rootSets() > 0) {
+            assertEq(
+                gate.policyRoots(address(account)),
+                handler.ghost_lastRoot(),
+                "stored root must match the last set root"
+            );
+        }
     }
 
     // Invariant 2: Root zero means no validation possible

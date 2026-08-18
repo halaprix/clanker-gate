@@ -81,53 +81,13 @@ contract CG05_Test is Test {
 }
 
 // ================================================================
-//  CG-15: _packValidationData bit shift error
-//  Current: (validUntil << 160) | (validAfter << 192) | sigFailed
-//  Correct: (validUntil << 160) | (validAfter << 208) | sigFailed
-//  validAfter should be at bits 208-255, not 192-239
+//  CG-15: _packValidationData bit shift error — FIXED. Real coverage lives in
+//  test/invariant/ClankerGateInvariant.t.sol (test_ExpiredPermissionsRejected /
+//  test_FuturePermissionsRejected), which assert the packed validUntil (bits
+//  160-207) and validAfter (bits 208-255) returned by the deployed gate.
+//  The former CG15_Test here computed and decoded the packing entirely inside
+//  the test without touching any source code, so it could never fail — removed.
 // ================================================================
-
-contract CG15_Test is Test {
-    /// @notice CG-15: Test that _packValidationData packs fields correctly
-    ///         ERC-4337 spec: bits 208-255 = validAfter, bits 160-207 = validUntil
-    ///         Bug was: code used << 192 for validAfter (overlapped with validUntil!)
-    ///         Now fixed: code uses << 208
-    function testCG15_PackValidationData_CorrectBitPositions() public {
-        // Test values that would expose the bug if positions were wrong
-        uint48 validAfter = uint48(1);  // Small value
-        uint48 validUntil = uint48(1);
-        bool sigFailed = true;
-        
-        // Compute using the CORRECT formula (now in source)
-        uint256 correctResult = (uint256(validUntil) << 160) | (uint256(validAfter) << 208) | (sigFailed ? 1 : 0);
-        
-        // Extract using ERC-4337 bit positions
-        uint256 sigFailedOut = correctResult & 1;
-        uint256 validUntilOut = (correctResult >> 160) & 0x0000FFFFFFFFFFFF;
-        uint256 validAfterOut = (correctResult >> 208) & 0x0000FFFFFFFFFFFF;
-        
-        assertEq(validAfterOut, 1, "CG-15: validAfter should be 1 when decoded from bits 208-255");
-        assertEq(validUntilOut, 1, "CG-15: validUntil should be 1");
-        assertEq(sigFailedOut, 1, "CG-15: sigFailed should be 1");
-    }
-    
-    /// @notice CG-15: Verify no overlap between validAfter and validUntil
-    function testCG15_PackValidationData_NoOverlap() public {
-        uint48 validAfter = uint48(0xFFF);  // Large value
-        uint48 validUntil = uint48(0xEEE);
-        bool sigFailed = false;
-        
-        // Using CORRECT formula: validAfter << 208
-        uint256 correctResult = (uint256(validUntil) << 160) | (uint256(validAfter) << 208) | (sigFailed ? 1 : 0);
-        
-        // Extract with positions per ERC-4337 spec
-        uint256 validAfterOut = (correctResult >> 208) & 0x0000FFFFFFFFFFFF;
-        uint256 validUntilOut = (correctResult >> 160) & 0x0000FFFFFFFFFFFF;
-        
-        assertEq(validAfterOut, validAfter, "CG-15: validAfter should be correctly encoded at bits 208-255");
-        assertEq(validUntilOut, validUntil, "CG-15: validUntil should be correctly encoded at bits 160-207");
-    }
-}
 
 // ================================================================
 //  CG-10: value field — FIXED. Permission.maxValue was added and
@@ -328,11 +288,11 @@ contract CG03_Test is Test {
         gate = new ClankerGate4337();
     }
 
-    /// @notice CG-03: Policy nonce not included in permission hash
-    ///         When policy root changes (nonce increments), old permissions
-    ///         should become invalid. But without nonce in hash, they remain valid.
-    function testCG03_PolicyNonce_ShouldInvalidateOldPermissions() public {
-        // Set up initial policy
+    /// @notice CG-03 (fixed): the policy nonce is bound into the leaf via
+    ///         hashPermissionWithAccount, so a proof valid at nonce N must stop
+    ///         verifying after the root is rotated to nonce N+1 — even when the
+    ///         stored root value itself is unchanged.
+    function testCG03_PolicyNonce_InvalidatesOldPermissionsAfterRotation() public {
         Permission memory permission;
         permission.target = address(0);
         permission.selector = 0x12345678;
@@ -341,30 +301,36 @@ contract CG03_Test is Test {
         permission.validUntil = 0;
         permission.chainId = 0;
 
-        bytes32 leaf = ClankerGateCore.hashPermission(permission);
+        address accountAddr = address(new MockAccountForCG05(owner));
         bytes32[] memory proof = new bytes32[](0);
-        
-        // First policy root with nonce=1
-        gate.setPolicyRoot(address(this), leaf);
-        uint256 nonce1 = gate.nonces(address(this));
-        
-        // Update to a new root (nonce becomes 2)
-        gate.setPolicyRoot(address(this), leaf);
-        uint256 nonce2 = gate.nonces(address(this));
-        
-        // With the bug: nonce is incremented but NOT included in permission hash
-        // So the same permission hash is valid for both nonce values
-        // This means if you get a Merkle proof for nonce=1, it also works for nonce=2
-        
-        // The fix would include the policy nonce in the hash somehow
-        // Either by including it in the domain separator or by other means
-        
-        // Currently there's no way to test this properly because the nonce
-        // isn't tracked in the hash. But we can verify that nonces increment.
-        assertEq(nonce2 - nonce1, 1, "CG-03: nonce should increment");
-        
-        // The actual test is that old proofs remain valid after policy update
-        // which is the bug - they should be invalidated
+
+        // Root for epoch 1 (setPolicyRoot bumps nonce 0 -> 1)
+        bytes32 leafEpoch1 = gate.computePermissionHash(accountAddr, permission, 1);
+        vm.prank(accountAddr);
+        gate.setPolicyRoot(accountAddr, leafEpoch1);
+
+        bytes32 userOpHash = keccak256("test");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, userOpHash);
+        bytes memory sig = abi.encodePacked(r, s, v);
+
+        PackedUserOperation memory userOp;
+        userOp.sender = accountAddr;
+        userOp.callData = hex"12345678";
+        userOp.signature = abi.encode(proof, permission, sig);
+
+        // Valid during epoch 1
+        uint256 result = MockAccountForCG05(accountAddr).callValidate(address(gate), userOp, userOpHash);
+        assertEq(result, 0, "CG-03: permission must validate in its own epoch");
+
+        // Rotate the policy: same root VALUE, but nonce becomes 2. The leaf the
+        // gate now derives from (account, permission, nonce=2) no longer matches
+        // the stored epoch-1 root, so the old proof must be rejected.
+        vm.prank(accountAddr);
+        gate.setPolicyRoot(accountAddr, leafEpoch1);
+        assertEq(gate.nonces(accountAddr), 2, "CG-03: rotation must bump the epoch");
+
+        vm.expectRevert(ClankerGate4337.InvalidProof.selector);
+        MockAccountForCG05(accountAddr).callValidate(address(gate), userOp, userOpHash);
     }
 }
 

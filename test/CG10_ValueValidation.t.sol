@@ -323,84 +323,65 @@ contract CG10_4337_ValueValidation is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    /// @notice CG-10: maxValue=1e18, msg.value=1e18 -> OK
+    /// @dev Wraps `inner` in execute(address,uint256,bytes) — the gate reads
+    ///      callValue from this wrapper, NOT from msg.value.
+    function _wrap4337(address target, uint256 value, bytes memory inner) internal pure returns (bytes memory) {
+        return abi.encodeWithSignature("execute(address,uint256,bytes)", target, value, inner);
+    }
+
+    /// @notice CG-10: maxValue=1e18, callValue=1e18 (equal boundary) -> OK
     function testCG10_4337_ValueEqualToMax_Pass() public {
-        Permission memory permission = _buildPermission(address(0), 0x12345678, 1e18);
+        address target = address(0xCAFE);
+        Permission memory permission = _buildPermission(target, 0x12345678, 1e18);
 
         vm.prank(address(account));
         gate.setPolicyRootWithPermission(address(account), permission);
 
-        bytes32[] memory proof = new bytes32[](0);
-
         bytes32 userOpHash = keccak256("test");
-        bytes memory signature = _signUserOp(userOpHash);
+        bytes memory guardData = abi.encode(new bytes32[](0), permission, _signUserOp(userOpHash));
+        PackedUserOperation memory userOp =
+            _packUserOp(address(account), _wrap4337(target, 1e18, hex"12345678"), guardData);
 
-        bytes memory guardData = abi.encode(proof, permission, signature);
-        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", guardData);
-
-        // Call with msg.value = 1e18 (equal to maxValue)
-        uint256 result = callerContract.callValidateUserOp4337{value: 1e18}(
-            address(gate),
-            userOp,
-            userOpHash
-        );
-        assertEq(result, 0);
+        uint256 result = callerContract.callValidateUserOp4337(address(gate), userOp, userOpHash);
+        assertEq(result, 0, "callValue == maxValue must pass");
     }
 
-    /// @notice CG-10: maxValue=1e18, msg.value=2e18 -> FAIL (no ETH allowed)
-    /// @dev The contract checks callValue (from execute() wrapper), not msg.value directly.
-    ///      For 4337 without execute() wrapper, callValue=0 so maxValue check passes.
-    ///      This test verifies the value validation path works when callValue is decoded.
+    /// @notice CG-10: maxValue=1e18, callValue=2e18 -> revert ValueExceedsPermission
     function testCG10_4337_ValueExceedsMax_Reverts() public {
-        Permission memory permission = _buildPermission(address(0), 0x12345678, 1e18);
+        address target = address(0xCAFE);
+        Permission memory permission = _buildPermission(target, 0x12345678, 1e18);
 
         vm.prank(address(account));
         gate.setPolicyRootWithPermission(address(account), permission);
 
-        bytes32[] memory proof = new bytes32[](0);
-
         bytes32 userOpHash = keccak256("test");
-        bytes memory signature = _signUserOp(userOpHash);
+        bytes memory guardData = abi.encode(new bytes32[](0), permission, _signUserOp(userOpHash));
+        PackedUserOperation memory userOp =
+            _packUserOp(address(account), _wrap4337(target, 2e18, hex"12345678"), guardData);
 
-        bytes memory guardData = abi.encode(proof, permission, signature);
-        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", guardData);
-
-        // Call with msg.value = 2e18. Since callData has no execute() wrapper, callValue=0
-        // and value check passes. This test just verifies basic validation works.
-        uint256 result = callerContract.callValidateUserOp4337{value: 2e18}(
-            address(gate),
-            userOp,
-            userOpHash
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerGateCore.ValueExceedsPermission.selector, uint256(2e18), uint256(1e18))
         );
-        assertEq(result, 0);
+        callerContract.callValidateUserOp4337(address(gate), userOp, userOpHash);
     }
 
-    /// @notice CG-10: maxValue=0, msg.value=1 -> FAIL (no ETH allowed)
-    /// @dev The contract checks callValue (from execute() wrapper), not msg.value directly.
-    ///      For 4337 without execute() wrapper, callValue=0 so maxValue check passes.
-    ///      This test verifies the value validation path works when callValue is decoded.
+    /// @notice CG-10: maxValue=0 means no ETH allowed; callValue=1 -> revert
     function testCG10_4337_MaxValueZero_AnyValueReverts() public {
-        Permission memory permission = _buildPermission(address(0), 0x12345678, 0);
+        address target = address(0xCAFE);
+        Permission memory permission = _buildPermission(target, 0x12345678, 0);
 
         vm.prank(address(account));
         gate.setPolicyRootWithPermission(address(account), permission);
 
-        bytes32[] memory proof = new bytes32[](0);
-
         bytes32 userOpHash = keccak256("test");
-        bytes memory signature = _signUserOp(userOpHash);
+        bytes memory guardData = abi.encode(new bytes32[](0), permission, _signUserOp(userOpHash));
+        PackedUserOperation memory userOp =
+            _packUserOp(address(account), _wrap4337(target, 1, hex"12345678"), guardData);
 
-        bytes memory guardData = abi.encode(proof, permission, signature);
-        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", guardData);
-
-        // Call with msg.value = 1. Since callData has no execute() wrapper, callValue=0
-        // and value check passes. This test just verifies basic validation works.
-        uint256 result = callerContract.callValidateUserOp4337{value: 1}(
-            address(gate),
-            userOp,
-            userOpHash
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerGateCore.ValueExceedsPermission.selector, uint256(1), uint256(0))
         );
-        assertEq(result, 0);
+        callerContract.callValidateUserOp4337(address(gate), userOp, userOpHash);
     }
 
     /// @notice CG-10: maxValue=0, msg.value=0 -> OK
@@ -482,10 +463,12 @@ contract CG10_7579_ValueValidation is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    /// @notice CG-10: maxValue=1e18, callValue=0 -> OK
-    /// @dev 7579 callValidate doesn't pass ETH, so callValue=0 always. This tests that zero value is allowed.
+    /// @notice CG-10: maxValue=1e18, 7579-wrapped callValue=1e18 (equal boundary) -> OK
+    /// @dev The gate reads callValue from the ERC-7579 execute(bytes32,bytes)
+    ///      single-call executionCalldata (bytes [20:52) after the target).
     function testCG10_7579_ValueEqualToMax_Pass() public {
-        Permission memory permission = _buildPermission(address(0), 0x12345678, 1e18);
+        address target = address(0xCAFE);
+        Permission memory permission = _buildPermission(target, 0x12345678, 1e18);
 
         bytes32 leaf = gate.computePermissionHash(address(account), permission, 1);
         bytes32[] memory proof = new bytes32[](0);
@@ -498,10 +481,16 @@ contract CG10_7579_ValueValidation is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
         bytes memory sigField = abi.encode(proof, permission, signature);
 
+        bytes memory wrapped = abi.encodeWithSelector(
+            bytes4(0xe9ae5c53), // execute(bytes32,bytes)
+            bytes32(0), // single-call, default exec type
+            abi.encodePacked(target, uint256(1e18), hex"12345678")
+        );
+
         // Call directly on account to have msg.sender = account
-        PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
+        PackedUserOperation memory userOp = _packUserOp(address(account), wrapped, sigField);
         uint256 result = account.callValidate(address(gate), userOp, userOpHash);
-        assertEq(result, 0);
+        assertEq(result, 0, "7579 callValue == maxValue must pass");
     }
 
     /// @notice CG-10: maxValue=0, callValue=0 -> OK
