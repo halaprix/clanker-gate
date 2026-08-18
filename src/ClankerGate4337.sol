@@ -207,9 +207,10 @@ contract ClankerGate4337 {
             revert UnauthorizedCallerForPermission(sender, permission.authorizedCaller);
         }
 
-        // Decode execute() wrapper — supports both execute(address,uint256,bytes) and ERC-7579 single-call
-        (ClankerGateCore.ExecKind execKind, address actualTarget, uint256 innerOffset, uint256 innerLength, uint256 callValue) =
-            ClankerGateCore.decodeAnyExecuteMemory(callData);
+        // Decode execute() wrapper — supports both execute(address,uint256,bytes) and ERC-7579
+        // single-call — and extract the inner calldata (CG-13: the slice lives in Core).
+        (ClankerGateCore.ExecKind execKind, address actualTarget, uint256 callValue, bytes memory innerCallData) =
+            ClankerGateCore.decodeAndExtractInner(callData);
 
         // CG-10: Validate msg.value against permission.maxValue
         if (callValue > permission.maxValue) {
@@ -229,23 +230,6 @@ contract ClankerGate4337 {
         }
 
         // Validate calldata rules
-        // CG-13 fix: use identity precompile (memory copy) instead of O(N) byte-by-byte loop
-        bytes memory innerCallData;
-        if (innerLength > 0) {
-            innerCallData = new bytes(innerLength);
-            bytes memory src;
-            assembly {
-                src := add(callData, 32)
-                mstore(innerCallData, innerLength)
-            }
-            assembly {
-                // identity precompile at 0x04 for efficient memory-to-memory copy
-                pop(staticcall(gas(), 0x04, add(src, innerOffset), innerLength, add(innerCallData, 32), innerLength))
-            }
-        } else {
-            innerCallData = callData;
-        }
-
         (bool valid, uint8 valErrorCode, uint256 ruleIndex) =
             ClankerGateCore.validateCallDataMemoryExtended(innerCallData, permission);
         if (!valid) {
