@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
+import {ClankerGateValidatorBase} from "../../src/ClankerGateValidatorBase.sol";
 import {Test, Vm} from "forge-std/Test.sol";
 import {ClankerGate4337} from "../../src/ClankerGate4337.sol";
 import {ClankerGateCore, ParamRule, Permission} from "../../src/ClankerGateCore.sol";
@@ -166,7 +167,7 @@ contract ClankerGateInvariantTest is Test {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        vm.expectRevert(ClankerGate4337.RootNotSet.selector);
+        vm.expectRevert(ClankerGateValidatorBase.PolicyRootNotSet.selector);
         gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
 
         // Restore root
@@ -259,7 +260,7 @@ contract ClankerGateInvariantTest is Test {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         vm.expectRevert(abi.encodeWithSelector(
-            ClankerGate4337.ChainIdMismatch.selector,
+            ClankerGateValidatorBase.ChainIdMismatch.selector,
             permission.chainId,
             block.chainid
         ));

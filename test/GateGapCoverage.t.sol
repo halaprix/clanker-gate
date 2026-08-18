@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
+import {ClankerGateValidatorBase} from "../src/ClankerGateValidatorBase.sol";
 import {Test} from "forge-std/Test.sol";
 import {ClankerGate4337} from "../src/ClankerGate4337.sol";
 import {ClankerGateSafe} from "../src/ClankerGateSafe.sol";
@@ -94,7 +95,7 @@ contract Gate4337GapsTest is Test {
 
         bytes32 userOpHash = keccak256("test");
         vm.expectRevert(
-            abi.encodeWithSelector(ClankerGate4337.CallDataValidationFailed.selector, ERR_INVALID_LENGTH)
+            abi.encodeWithSelector(ClankerGateValidatorBase.CallDataValidationFailed.selector, ERR_INVALID_LENGTH)
         );
         gate.validateUserOp(_packUserOp(address(account), hex"1234", _guardData(permission, userOpHash)), userOpHash);
     }
@@ -176,7 +177,7 @@ contract Gate4337GapsTest is Test {
         _installSingleLeaf(address(account), permission);
 
         bytes32 userOpHash = keccak256("test");
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.CallDataValidationFailed.selector, uint8(2)));
+        vm.expectRevert(abi.encodeWithSelector(ClankerGateValidatorBase.CallDataValidationFailed.selector, uint8(2)));
         gate.validateUserOp(
             _packUserOp(address(account), wrapped, _guardData(permission, userOpHash)), userOpHash
         );
