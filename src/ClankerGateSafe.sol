@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
-import {ClankerGateCore, Permission, ParamRule, DOMAIN_SEPARATOR_TYPEHASH, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH} from "./ClankerGateCore.sol";
+import {ClankerGateCore, Permission, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH} from "./ClankerGateCore.sol";
+import {ClankerGateHashing} from "./ClankerGateValidatorBase.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 
 /// @title ClankerGateSafe - Gnosis Safe Module
@@ -44,21 +45,7 @@ struct CallerAuth {
     bool enabled;
 }
 
-contract ClankerGateSafe is ReentrancyGuardTransient {
-    using ClankerGateCore for Permission;
-
-    bytes32 private immutable DOMAIN_SEPARATOR;
-
-    constructor() {
-        DOMAIN_SEPARATOR = keccak256(abi.encode(
-            DOMAIN_SEPARATOR_TYPEHASH,
-            keccak256("ClankerGate"),
-            keccak256("1"),
-            block.chainid,
-            address(this)
-        ));
-    }
-
+contract ClankerGateSafe is ClankerGateHashing, ReentrancyGuardTransient {
     /// @notice Mapping from Safe address to caller authorizations
     mapping(address => CallerAuth) public authorizations;
 
@@ -71,10 +58,6 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
 
     /// @notice Mapping from Safe => caller => authorized
     mapping(address => mapping(address => bool)) public isAuthorizedCaller;
-
-    /// @notice Mapping from Safe => permissionHash => used (for singleUse permissions)
-    /// @dev Uses nested mapping to prevent cross-account singleUse collision attacks
-    mapping(address => mapping(bytes32 => bool)) public usedPermissionHashes;
 
     /// @notice Mapping from Safe => target => whitelist version (0 = not whitelisted)
     /// @dev CG-20b: Check against authorizations[safe].whitelistVersion - entries from old versions are invalid
@@ -132,13 +115,9 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         emit PolicyRootSet(safe, root, authorizations[safe].nonce);
     }
 
-    /// @notice Compute permission hash in this contract's context
-    /// @param account The account to scope the permission to
-    /// @param permission The permission to hash
-    /// @param nonce The nonce to bind
-    /// @return The computed leaf hash
-    function computePermissionHash(address account, Permission memory permission, uint256 nonce) external view returns (bytes32) {
-        return ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
+    /// @notice ClankerGateHashing hook: the Safe's current policy epoch nonce.
+    function _nonceOf(address account) internal view override returns (uint256) {
+        return authorizations[account].nonce;
     }
 
     /// @notice Authorizes a caller to execute transactions on behalf of Safe
@@ -322,10 +301,7 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         // Check singleUse permission - use account-scoped hash to prevent collision attacks
         bytes32 permissionHash = ClankerGateCore.hashPermissionWithAccount(safe, permission, authorizations[safe].nonce);
         if (permission.singleUse) {
-            if (usedPermissionHashes[safe][permissionHash]) {
-                revert ClankerGateCore.PermissionAlreadyUsed(permissionHash);
-            }
-            usedPermissionHashes[safe][permissionHash] = true;
+            _markUsed(safe, permissionHash);
         }
 
         // Execute through Safe
@@ -339,54 +315,4 @@ contract ClankerGateSafe is ReentrancyGuardTransient {
         }
     }
 
-    /// @notice Computes the unscoped permission hash for off-chain use.
-    /// @dev Returns the intermediate hash BEFORE account/nonce scoping.
-    ///      This is NOT a Merkle leaf — it is missing account and nonce binding.
-    ///      Use the account-scoped `computePermissionHash(account, permission, nonce)`
-    ///      overload to obtain the actual Merkle leaf.
-    function computePermissionInnerHash(
-        address target,
-        bytes4 selector,
-        ParamRule[] calldata rules,
-        uint48 validAfter,
-        uint48 validUntil,
-        uint256 chainId,
-        bool singleUse,
-        uint256 maxValue
-    ) external view returns (bytes32) {
-        Permission memory permission;
-        permission.target = target;
-        permission.selector = selector;
-        permission.rules = rules;
-        permission.validAfter = validAfter;
-        permission.validUntil = validUntil;
-        permission.chainId = chainId;
-        permission.singleUse = singleUse;
-        permission.maxValue = maxValue;
-        return ClankerGateCore.hashPermission(permission, DOMAIN_SEPARATOR);
-    }
-
-    /// @notice Compute permission hash scoped to a Safe
-    function computePermissionHashWithAccount(
-        address safe,
-        address target,
-        bytes4 selector,
-        ParamRule[] calldata rules,
-        uint48 validAfter,
-        uint48 validUntil,
-        uint256 chainId,
-        bool singleUse,
-        uint256 maxValue
-    ) external view returns (bytes32) {
-        Permission memory permission;
-        permission.target = target;
-        permission.selector = selector;
-        permission.rules = rules;
-        permission.validAfter = validAfter;
-        permission.validUntil = validUntil;
-        permission.chainId = chainId;
-        permission.singleUse = singleUse;
-        permission.maxValue = maxValue;
-        return ClankerGateCore.hashPermissionWithAccount(safe, permission, authorizations[safe].nonce);
-    }
 }

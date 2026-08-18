@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
+import {ClankerGateValidatorBase} from "../src/ClankerGateValidatorBase.sol";
 import {Test} from "forge-std/Test.sol";
 import {ClankerGate4337} from "../src/ClankerGate4337.sol";
 import {ClankerGateCore, Permission, ParamRule} from "../src/ClankerGateCore.sol";
@@ -212,17 +213,18 @@ contract AuditVerify is Test {
         // Set a policy root as if this account had previously called setPolicyRoot directly.
         // We use vm.store to bypass the owner check for setup purposes.
         bytes32 leaf = gate.computePermissionHash(address(noOwnerAcct), p, 1);
-        // Store root directly in the mapping slot (slot 0 of policyRoots).
-        // policyRoots is mapping(address => bytes32) at slot 0.
-        vm.store(
-            address(gate),
-            keccak256(abi.encode(address(noOwnerAcct), uint256(0))),
-            leaf
-        );
-        // Also set nonce to 1 via slot 1.
+        // Store root directly in the mapping slot of policyRoots.
+        // Slot 0 is ClankerGateHashing.usedPermissionHashes, so
+        // policyRoots is mapping(address => bytes32) at slot 1.
         vm.store(
             address(gate),
             keccak256(abi.encode(address(noOwnerAcct), uint256(1))),
+            leaf
+        );
+        // Also set nonce to 1 via slot 2.
+        vm.store(
+            address(gate),
+            keccak256(abi.encode(address(noOwnerAcct), uint256(2))),
             bytes32(uint256(1))
         );
 
@@ -236,7 +238,7 @@ contract AuditVerify is Test {
             abi.encodeWithSignature("execute(address,uint256,bytes)", ROUTER, uint256(0), inner);
 
         vm.expectRevert(
-            abi.encodeWithSelector(ClankerGate4337.AccountHasNoOwner.selector, address(noOwnerAcct))
+            abi.encodeWithSelector(ClankerGateValidatorBase.AccountHasNoOwner.selector, address(noOwnerAcct))
         );
         gate.validateUserOp(_packUserOp(address(noOwnerAcct), callData, guardData), userOpHash);
     }

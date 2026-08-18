@@ -480,6 +480,35 @@ library ClankerGateCore {
         return (ExecKind.Direct, address(0), 0, callData.length, 0);
     }
 
+    /// @notice Decodes any recognised execute wrapper and extracts the inner calldata.
+    /// @dev Callers never handle offsets. The slice (CG-13: identity precompile copy)
+    ///      and the "no inner data ⇒ validate the whole callData" rule live here, in
+    ///      exactly one place. The bounds guard mirrors decodeAnyExecuteMemory's own
+    ///      checks and exists as defence in depth.
+    /// @param callData The calldata to decode (in memory)
+    /// @return kind          Which format was found
+    /// @return target        Target address (address(0) for Direct)
+    /// @return value         ETH value (0 for Direct)
+    /// @return innerCallData The inner calldata to validate rules against
+    function decodeAndExtractInner(bytes memory callData)
+        internal view
+        returns (ExecKind kind, address target, uint256 value, bytes memory innerCallData)
+    {
+        uint256 innerOffset;
+        uint256 innerLength;
+        (kind, target, innerOffset, innerLength, value) = decodeAnyExecuteMemory(callData);
+
+        if (innerLength > 0 && innerOffset + innerLength <= callData.length) {
+            innerCallData = new bytes(innerLength);
+            assembly {
+                // identity precompile at 0x04 for efficient memory-to-memory copy
+                pop(staticcall(gas(), 0x04, add(add(callData, 32), innerOffset), innerLength, add(innerCallData, 32), innerLength))
+            }
+        } else {
+            innerCallData = callData;
+        }
+    }
+
     // Errors
     error CalldataOutOfRange(uint256 offset);
     error RuleViolation(uint256 ruleIndex, uint8 op, bytes32 expected, bytes32 actual);

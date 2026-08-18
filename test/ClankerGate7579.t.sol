@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
+import {ClankerGateValidatorBase} from "../src/ClankerGateValidatorBase.sol";
 import {Test} from "forge-std/Test.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ClankerGate7579} from "../src/ClankerGate7579.sol";
@@ -503,7 +504,7 @@ contract ValidationTests is ClankerGate7579Test {
         bytes memory sigField = abi.encode(proof, permission, signature);
         PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        vm.expectRevert(ClankerGate7579.InvalidProof.selector);
+        vm.expectRevert(ClankerGateValidatorBase.InvalidProof.selector);
         account.callValidate(address(gate), userOp, userOpHash);
     }
 
@@ -595,7 +596,7 @@ contract ValidationTests is ClankerGate7579Test {
         bytes memory sigField = abi.encode(new bytes32[](0), permission, signature);
         PackedUserOperation memory userOp = _packUserOp(address(account), hex"12345678", sigField);
 
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate7579.ChainIdMismatch.selector, permission.chainId, block.chainid));
+        vm.expectRevert(abi.encodeWithSelector(ClankerGateValidatorBase.ChainIdMismatch.selector, permission.chainId, block.chainid));
         account.callValidate(address(gate), userOp, userOpHash);
     }
 }
@@ -906,7 +907,7 @@ contract AuthorizedCallerTests7579 is ClankerGate7579Test {
         // msg.sender inside validateUserOp is address(account) != nonMatchingCaller → must revert
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate7579.UnauthorizedCallerForPermission.selector,
+                ClankerGateValidatorBase.UnauthorizedCallerForPermission.selector,
                 address(account),
                 nonMatchingCaller
             )

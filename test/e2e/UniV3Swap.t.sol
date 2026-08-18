@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
+import {ClankerGateValidatorBase} from "../../src/ClankerGateValidatorBase.sol";
 import {Test} from "forge-std/Test.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -211,7 +212,7 @@ contract UniV3SwapTest is Test {
         bytes memory guardData = _guardData(permission, userOpHash);
 
         vm.expectRevert(
-            abi.encodeWithSelector(ClankerGate4337.DirectCallRequiresTargetZero.selector, SWAP_ROUTER)
+            abi.encodeWithSelector(ClankerGateValidatorBase.DirectCallRequiresTargetZero.selector, SWAP_ROUTER)
         );
         gate.validateUserOp(
             _packUserOp(address(account), _swapCalldata(WETH, USDC, 0.5 ether), guardData), userOpHash
