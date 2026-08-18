@@ -2,9 +2,9 @@
 pragma solidity 0.8.35;
 
 import {SignatureCheckerLib} from "solady/utils/SignatureCheckerLib.sol";
-import {ClankerGateCore, Permission, ParamRule, DOMAIN_SEPARATOR_TYPEHASH, ERR_INVALID_LENGTH, ERR_SELECTOR_MISMATCH} from "./ClankerGateCore.sol";
 import {IERC7579Account, MODULE_TYPE_VALIDATOR} from "./interfaces/IERC7579.sol";
 import {PackedUserOperation} from "./interfaces/IERC4337.sol";
+import {ClankerGateValidatorBase} from "./ClankerGateValidatorBase.sol";
 
 /**
  * @title ClankerGate7579 - ERC-7579 Validator Module
@@ -14,6 +14,8 @@ import {PackedUserOperation} from "./interfaces/IERC4337.sol";
  * @dev
  *     This module implements ERC-7579 Module Type 1 (Validator).
  *     It validates UserOperations against policy rules stored in Merkle trees.
+ *     The validation pipeline itself lives in ClankerGateValidatorBase; this adapter
+ *     supplies the 7579-specific storage (install lifecycle) and signer resolution.
  *
  *     ## Installation
  *
@@ -46,19 +48,7 @@ import {PackedUserOperation} from "./interfaces/IERC4337.sol";
  *     - External self-calls are disallowed during ERC-4337 validation; callData is read directly
  *       from userOp.callData instead of using try/catch self-decode machinery
  */
-contract ClankerGate7579 {
-    bytes32 private immutable DOMAIN_SEPARATOR;
-
-    constructor() {
-        DOMAIN_SEPARATOR = keccak256(abi.encode(
-            DOMAIN_SEPARATOR_TYPEHASH,
-            keccak256("ClankerGate"),
-            keccak256("1"),
-            block.chainid,
-            address(this)
-        ));
-    }
-
+contract ClankerGate7579 is ClankerGateValidatorBase {
     // ============ Storage ============
 
     /// @notice Per-account configuration
@@ -76,10 +66,6 @@ contract ClankerGate7579 {
 
     /// @notice Mapping from account address to configuration
     mapping(address => AccountConfig) public accountConfigs;
-
-    /// @notice Mapping from account => permissionHash => used (for singleUse permissions)
-    /// @dev Uses nested mapping to prevent cross-account singleUse collision attacks
-    mapping(address => mapping(bytes32 => bool)) public usedPermissionHashes;
 
     /// @notice Persistent monotonic install counter per account.
     /// @dev Survives uninstall. onInstall uses ++_installEpoch[account] as the fresh nonce,
@@ -100,42 +86,11 @@ contract ClankerGate7579 {
     /// @notice Emitted when policy root is updated
     event PolicyRootSet(address indexed account, bytes32 root, uint256 nonce);
 
-    /// @notice Emitted when validation succeeds
-    event ValidationSucceeded(address indexed account, bytes32 permissionHash);
-
     // ============ Errors ============
-
-    // Named shift constants for _packValidationData (L-9)
-    uint256 private constant VALID_UNTIL_SHIFT = 160;
-    uint256 private constant VALID_AFTER_SHIFT  = 208;
 
     error NotInstalled();
     error AlreadyInstalled();
-    error InvalidProof();
-    error UnauthorizedSigner(address expected, address actual);
-    error TargetMismatch(address expected, address actual);
-    error PermissionNotYetValid(uint256 currentTime, uint256 validAfter);
-    error PermissionExpired(uint256 currentTime, uint256 validUntil);
-    error ChainIdMismatch(uint256 expected, uint256 actual);
-    error PolicyRootNotSet();
     error Unauthorized();
-    error AccountHasNoOwner(address account);
-    error DirectCallRequiresTargetZero(address target);
-    error InvalidUserOpFormat();
-    error ValueExceedsPermission(uint256 value, uint256 maxValue);
-    error UnauthorizedCallerForPermission(address actual, address expected);
-    /// @dev Reverts when calldata structural checks fail (selector/length mismatch).
-    error CallDataValidationFailed(uint8 errorCode);
-
-    // Error codes - using unique names to avoid shadowing
-    uint8 constant ERR_ROOT_NOT_SET_V = 0;
-    uint8 constant ERR_INVALID_PROOF_V = 1;
-    uint8 constant ERR_UNAUTHORIZED_SIGNER_V = 2;
-    uint8 constant ERR_TARGET_MISMATCH_V = 6;
-    uint8 constant ERR_NOT_YET_VALID_V = 7;
-    uint8 constant ERR_EXPIRED_V = 8;
-    uint8 constant ERR_CHAIN_MISMATCH_V = 9;
-    uint8 constant ERR_NO_OWNER_V = 10;
 
     // ============ ERC-7579 Module Interface ============
 
@@ -243,15 +198,6 @@ contract ClankerGate7579 {
         emit PolicyRootSet(account, newRoot, config.nonce);
     }
 
-    /// @notice Compute permission hash in this contract's context
-    /// @param account The account to scope the permission to
-    /// @param permission The permission to hash
-    /// @param nonce The nonce to bind
-    /// @return The computed leaf hash
-    function computePermissionHash(address account, Permission memory permission, uint256 nonce) external view returns (bytes32) {
-        return ClankerGateCore.hashPermissionWithAccount(account, permission, nonce);
-    }
-
     /**
      * @notice Update the session signer (owner) for an account.
      * @dev H-4: Gated by account-or-policyAdmin (NOT config.owner). The current session signer
@@ -306,111 +252,17 @@ contract ClankerGate7579 {
      * @dev userOp.signature must be abi.encode(bytes32[] proof, Permission permission, bytes ownerSig).
      *      External self-calls are disallowed during ERC-4337 validation, so callData is read
      *      directly from userOp.callData rather than through try/catch self-decode machinery.
+     *      msg.sender is the account (the EntryPoint routes through the account before reaching
+     *      the validator module). The pipeline lives in ClankerGateValidatorBase._validate.
      */
     function validateUserOp(
         PackedUserOperation calldata userOp,
         bytes32 userOpHash
     ) external returns (uint256 validationData) {
-        AccountConfig storage config = accountConfigs[msg.sender];
-
-        if (!config.installed) {
+        if (!accountConfigs[msg.sender].installed) {
             revert NotInstalled();
         }
-
-        bytes32 root = config.policyRoot;
-        if (root == bytes32(0)) {
-            revert PolicyRootNotSet();
-        }
-
-        (bytes32[] memory proof, Permission memory permission, bytes memory ownerSig) =
-            abi.decode(userOp.signature, (bytes32[], Permission, bytes));
-
-        if (!ClankerGateCore.verifyMerkleProof(root, proof, permission, msg.sender, accountConfigs[msg.sender].nonce)) {
-            revert InvalidProof();
-        }
-
-        // Validate permission constraints.
-        // chainId mismatch (errorCode 9) is a structural breach → revert.
-        // Time-window failures (7 = not-yet-valid, 8 = expired) are returned in packed validationData
-        // so the EntryPoint can enforce the window (M-2, M-3).
-        (bool permissionValid, uint8 errorCode) = ClankerGateCore.validatePermission(permission);
-        if (!permissionValid) {
-            if (errorCode == 9) {
-                revert ChainIdMismatch(permission.chainId, block.chainid);
-            }
-            // errorCode 7 or 8: let validAfter/validUntil propagate via packed return below
-        }
-
-        // H-2: Enforce permission.authorizedCaller (bound to msg.sender which IS the account in the
-        // 7579 validator flow — the account calls the module directly, so msg.sender == account).
-        // Note: Safe binds to the executor msg.sender; here msg.sender is always the account because
-        // the EntryPoint routes through the account before reaching the validator module.
-        if (permission.authorizedCaller != address(0) && permission.authorizedCaller != msg.sender) {
-            revert UnauthorizedCallerForPermission(msg.sender, permission.authorizedCaller);
-        }
-
-        // Read callData directly from the userOp struct field.
-        // External self-calls (the old try/catch _decodeCallData pattern) are disallowed
-        // during ERC-4337 validation, so we access userOp.callData directly.
-        bytes memory callData = userOp.callData;
-
-        // Decode execute() wrapper — supports both execute(address,uint256,bytes) and ERC-7579
-        // single-call — and extract the inner calldata (CG-13: the slice lives in Core).
-        (ClankerGateCore.ExecKind execKind, address actualTarget, uint256 callValue, bytes memory innerCallData) =
-            ClankerGateCore.decodeAndExtractInner(callData);
-
-        // CG-10: Validate callValue against permission.maxValue
-        if (callValue > permission.maxValue) {
-            revert ValueExceedsPermission(callValue, permission.maxValue);
-        }
-
-        // A direct call executes against the account itself. It must be explicitly
-        // authorized with target == address(0); otherwise a selector collision on
-        // the account could reuse a permission intended for an external protocol.
-        if (execKind == ClankerGateCore.ExecKind.Direct && permission.target != address(0)) {
-            revert DirectCallRequiresTargetZero(permission.target);
-        }
-
-        // Wrapped calls always have an explicit target, including address(0).
-        if (execKind != ClankerGateCore.ExecKind.Direct && actualTarget != permission.target) {
-            revert TargetMismatch(permission.target, actualTarget);
-        }
-
-        // Validate calldata rules
-        (bool valid, uint8 valErrorCode, uint256 ruleIndex) =
-            ClankerGateCore.validateCallDataMemoryExtended(innerCallData, permission);
-        if (!valid) {
-            if (valErrorCode == ERR_INVALID_LENGTH || valErrorCode == ERR_SELECTOR_MISMATCH) {
-                // Structural/policy breach → revert (D4)
-                revert CallDataValidationFailed(valErrorCode);
-            }
-            revert CallDataValidationFailed(valErrorCode);
-        }
-
-        // CG-07 / M-4: Unified signature check via SignatureCheckerLib.
-        // Routes to EIP-1271 when expectedSigner is a contract, ECDSA when it's an EOA.
-        // Signature failure is returned as packed sigFailed bit; it does NOT revert (M-2).
-        address expectedSigner = config.signatureValidator != address(0)
-            ? config.signatureValidator
-            : _getExpectedSigner(msg.sender);
-        bool sigFailed = !SignatureCheckerLib.isValidSignatureNow(expectedSigner, userOpHash, ownerSig);
-
-        // A failed-signature op must not consume a singleUse permission (M-2).
-        if (sigFailed) {
-            return _packValidationData(true, permission.validUntil, permission.validAfter);
-        }
-
-        // Check singleUse permission - use account-scoped hash to prevent collision attacks
-        bytes32 permissionHash = ClankerGateCore.hashPermissionWithAccount(msg.sender, permission, accountConfigs[msg.sender].nonce);
-        if (permission.singleUse) {
-            if (usedPermissionHashes[msg.sender][permissionHash]) {
-                revert ClankerGateCore.PermissionAlreadyUsed(permissionHash);
-            }
-            usedPermissionHashes[msg.sender][permissionHash] = true;
-        }
-
-        emit ValidationSucceeded(msg.sender, permissionHash);
-        return _packValidationData(false, permission.validUntil, permission.validAfter);
+        return _validate(msg.sender, userOp.callData, userOpHash, userOp.signature);
     }
 
     /**
@@ -431,18 +283,24 @@ contract ClankerGate7579 {
         bytes calldata signature
     ) external view returns (bytes4) {
         // msg.sender is the smart account that installed this module.
-        AccountConfig storage config = accountConfigs[msg.sender];
-        if (!config.installed) {
+        if (!accountConfigs[msg.sender].installed) {
             return bytes4(0xffffffff);
         }
 
         // M-4: Unified check via SignatureCheckerLib (handles ECDSA + EIP-1271 + EIP-2098)
-        address expectedSigner = config.signatureValidator != address(0)
-            ? config.signatureValidator
-            : _getExpectedSigner(msg.sender);
-        bool sigValid = SignatureCheckerLib.isValidSignatureNow(expectedSigner, hash, signature);
+        bool sigValid = SignatureCheckerLib.isValidSignatureNow(_resolveSigner(msg.sender), hash, signature);
 
         return sigValid ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
+    }
+
+    // ============ ClankerGateValidatorBase hooks ============
+
+    function _policyRootOf(address account) internal view override returns (bytes32) {
+        return accountConfigs[account].policyRoot;
+    }
+
+    function _nonceOf(address account) internal view override returns (uint256) {
+        return accountConfigs[account].nonce;
     }
 
     /**
@@ -450,23 +308,22 @@ contract ClankerGate7579 {
      * @param account The account address
      * @return The expected signer address
      */
-    function _getExpectedSigner(address account) internal view returns (address) {
+    function _resolveSigner(address account) internal view override returns (address) {
         AccountConfig storage config = accountConfigs[account];
-        address sigValidator = config.signatureValidator;
 
         // Use custom signature validator when set
-        if (sigValidator != address(0)) {
-            return sigValidator;
+        if (config.signatureValidator != address(0)) {
+            return config.signatureValidator;
         }
 
-        // CG-11: Use low-level staticcall with bounded output (32 bytes) to prevent
-        // return data bomb attacks. Malicious contracts could return massive payloads
-        // to exhaust memory with high-level try/catch which allocates full return data.
         // First check cached owner from onInstall (avoids an external call)
         if (config.owner != address(0)) {
             return config.owner;
         }
 
+        // CG-11: Use low-level staticcall with bounded output (32 bytes) to prevent
+        // return data bomb attacks. Malicious contracts could return massive payloads
+        // to exhaust memory with high-level try/catch which allocates full return data.
         // H-1: Use owner() (0x8da5cb5b) as the sole external selector.
         // implementation() (0x5c60da1b) must NOT be called — proxy accounts expose it and
         // would cause the implementation contract address to be treated as the owner.
@@ -481,15 +338,6 @@ contract ClankerGate7579 {
         }
         if (!success || owner == address(0)) revert AccountHasNoOwner(account);
         return owner;
-    }
-
-    /// @notice Packs validation data according to ERC-4337 format
-    function _packValidationData(
-        bool sigFailed,
-        uint48 validUntil,
-        uint48 validAfter
-    ) internal pure returns (uint256) {
-        return (uint256(validUntil) << VALID_UNTIL_SHIFT) | (uint256(validAfter) << VALID_AFTER_SHIFT) | (sigFailed ? 1 : 0);
     }
 
     // ============ View Functions ============
@@ -521,60 +369,5 @@ contract ClankerGate7579 {
             config.installed,
             config.policyAdmin
         );
-    }
-
-    /**
-     * @notice Computes the unscoped permission hash for off-chain use.
-     * @dev Returns the intermediate hash BEFORE account/nonce scoping.
-     *      This is NOT a Merkle leaf — it is missing account and nonce binding.
-     *      Use the account-scoped `computePermissionHash(account, permission, nonce)`
-     *      overload to obtain the actual Merkle leaf.
-     */
-    function computePermissionInnerHash(
-        address target,
-        bytes4 selector,
-        ParamRule[] calldata rules,
-        uint48 validAfter,
-        uint48 validUntil,
-        uint256 chainId,
-        bool singleUse,
-        uint256 maxValue
-    ) external view returns (bytes32) {
-        Permission memory permission;
-        permission.target = target;
-        permission.selector = selector;
-        permission.rules = rules;
-        permission.validAfter = validAfter;
-        permission.validUntil = validUntil;
-        permission.chainId = chainId;
-        permission.singleUse = singleUse;
-        permission.maxValue = maxValue;
-        return ClankerGateCore.hashPermission(permission, DOMAIN_SEPARATOR);
-    }
-
-    /**
-     * @notice Compute permission hash scoped to an account
-     */
-    function computePermissionHashWithAccount(
-        address account,
-        address target,
-        bytes4 selector,
-        ParamRule[] calldata rules,
-        uint48 validAfter,
-        uint48 validUntil,
-        uint256 chainId,
-        bool singleUse,
-        uint256 maxValue
-    ) external view returns (bytes32) {
-        Permission memory permission;
-        permission.target = target;
-        permission.selector = selector;
-        permission.rules = rules;
-        permission.validAfter = validAfter;
-        permission.validUntil = validUntil;
-        permission.chainId = chainId;
-        permission.singleUse = singleUse;
-        permission.maxValue = maxValue;
-        return ClankerGateCore.hashPermissionWithAccount(account, permission, accountConfigs[account].nonce);
     }
 }

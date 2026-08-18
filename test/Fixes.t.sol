@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
+import {ClankerGateValidatorBase} from "../src/ClankerGateValidatorBase.sol";
 import {Test, console} from "forge-std/Test.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ClankerGate4337} from "../src/ClankerGate4337.sol";
@@ -329,7 +330,7 @@ contract CG03_Test is Test {
         gate.setPolicyRoot(accountAddr, leafEpoch1);
         assertEq(gate.nonces(accountAddr), 2, "CG-03: rotation must bump the epoch");
 
-        vm.expectRevert(ClankerGate4337.InvalidProof.selector);
+        vm.expectRevert(ClankerGateValidatorBase.InvalidProof.selector);
         MockAccountForCG05(accountAddr).callValidate(address(gate), userOp, userOpHash);
     }
 }

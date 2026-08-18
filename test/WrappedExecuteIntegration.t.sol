@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
+import {ClankerGateValidatorBase} from "../src/ClankerGateValidatorBase.sol";
 import {Test} from "forge-std/Test.sol";
 import {ClankerGate4337} from "../src/ClankerGate4337.sol";
 import {ClankerGate7579} from "../src/ClankerGate7579.sol";
@@ -207,7 +208,7 @@ contract WrappedExecuteIntegration4337 is WrappedExecuteIntegrationBase {
         bytes memory callData = _wrap4337(ROUTER, 2 ether, _inner(0.5 ether));
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate4337.ValueExceedsPermission.selector,
+                ClankerGateValidatorBase.ValueExceedsPermission.selector,
                 uint256(2 ether),
                 uint256(1 ether)
             )
@@ -229,7 +230,7 @@ contract WrappedExecuteIntegration4337 is WrappedExecuteIntegrationBase {
         // TargetMismatch(expected=permission.target=ROUTER, actual=OTHER)
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate4337.TargetMismatch.selector,
+                ClankerGateValidatorBase.TargetMismatch.selector,
                 ROUTER,
                 OTHER
             )
@@ -245,7 +246,7 @@ contract WrappedExecuteIntegration4337 is WrappedExecuteIntegrationBase {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate4337.DirectCallRequiresTargetZero.selector,
+                ClankerGateValidatorBase.DirectCallRequiresTargetZero.selector,
                 ROUTER
             )
         );
@@ -264,7 +265,7 @@ contract WrappedExecuteIntegration4337 is WrappedExecuteIntegrationBase {
         bytes memory callData = _wrap4337(address(0), 2 ether, _inner(0.5 ether));
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate4337.ValueExceedsPermission.selector,
+                ClankerGateValidatorBase.ValueExceedsPermission.selector,
                 uint256(2 ether),
                 uint256(1 ether)
             )
@@ -302,7 +303,7 @@ contract WrappedExecuteIntegration4337 is WrappedExecuteIntegrationBase {
         bytes memory callData = _wrap7579Single(ROUTER, 2 ether, _inner(0.5 ether));
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate4337.ValueExceedsPermission.selector,
+                ClankerGateValidatorBase.ValueExceedsPermission.selector,
                 uint256(2 ether),
                 uint256(1 ether)
             )
@@ -319,7 +320,7 @@ contract WrappedExecuteIntegration4337 is WrappedExecuteIntegrationBase {
         bytes memory callData = _wrap7579Single(OTHER, 0, _inner(0.5 ether));
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate4337.TargetMismatch.selector,
+                ClankerGateValidatorBase.TargetMismatch.selector,
                 ROUTER,
                 OTHER
             )
@@ -460,7 +461,7 @@ contract WrappedExecuteIntegration7579 is WrappedExecuteIntegrationBase {
         PackedUserOperation memory userOp = _packUserOp(address(account), callData, _guardData());
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate7579.ValueExceedsPermission.selector,
+                ClankerGateValidatorBase.ValueExceedsPermission.selector,
                 uint256(2 ether),
                 uint256(1 ether)
             )
@@ -479,7 +480,7 @@ contract WrappedExecuteIntegration7579 is WrappedExecuteIntegrationBase {
         // TargetMismatch(expected=permission.target=ROUTER, actual=OTHER)
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate7579.TargetMismatch.selector,
+                ClankerGateValidatorBase.TargetMismatch.selector,
                 ROUTER,
                 OTHER
             )
@@ -493,7 +494,7 @@ contract WrappedExecuteIntegration7579 is WrappedExecuteIntegrationBase {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate7579.DirectCallRequiresTargetZero.selector,
+                ClankerGateValidatorBase.DirectCallRequiresTargetZero.selector,
                 ROUTER
             )
         );

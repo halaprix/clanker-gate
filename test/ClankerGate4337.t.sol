@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.35;
 
+import {ClankerGateValidatorBase} from "../src/ClankerGateValidatorBase.sol";
 import {Test} from "forge-std/Test.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -73,7 +74,7 @@ contract CoreValidationTests is ClankerGateTest {
         bytes memory guardData =
             abi.encode(new bytes32[](0), Permission(address(0), bytes4(0), 0, 0, false, 0, 0, address(0), new ParamRule[](0)), hex"");
 
-        vm.expectRevert(ClankerGate4337.RootNotSet.selector);
+        vm.expectRevert(ClankerGateValidatorBase.PolicyRootNotSet.selector);
         gate.validateUserOp(_packUserOp(address(account), hex"", guardData), userOpHash);
     }
 
@@ -126,7 +127,7 @@ contract CoreValidationTests is ClankerGateTest {
         bytes memory guardData = abi.encode(proof, permission, signature);
 
         // A8: selector mismatch is a structural breach → revert CallDataValidationFailed
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.CallDataValidationFailed.selector, uint8(2)));
+        vm.expectRevert(abi.encodeWithSelector(ClankerGateValidatorBase.CallDataValidationFailed.selector, uint8(2)));
         gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
@@ -212,7 +213,7 @@ contract CoreValidationTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        vm.expectRevert(ClankerGate4337.InvalidProof.selector);
+        vm.expectRevert(ClankerGateValidatorBase.InvalidProof.selector);
         gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
@@ -597,7 +598,7 @@ contract SessionLifecycleTests is ClankerGateTest {
 
         bytes memory guardData = abi.encode(proof, permission, signature);
 
-        vm.expectRevert(abi.encodeWithSelector(ClankerGate4337.ChainIdMismatch.selector, permission.chainId, block.chainid));
+        vm.expectRevert(abi.encodeWithSelector(ClankerGateValidatorBase.ChainIdMismatch.selector, permission.chainId, block.chainid));
         gate.validateUserOp(_packUserOp(address(account), hex"12345678", guardData), userOpHash);
     }
 
@@ -676,7 +677,7 @@ contract AuthorizedCallerTests4337 is ClankerGateTest {
         // sender == address(account) != nonMatchingCaller → must revert
         vm.expectRevert(
             abi.encodeWithSelector(
-                ClankerGate4337.UnauthorizedCallerForPermission.selector,
+                ClankerGateValidatorBase.UnauthorizedCallerForPermission.selector,
                 address(account),
                 nonMatchingCaller
             )
